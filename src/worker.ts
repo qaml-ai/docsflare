@@ -449,18 +449,19 @@ function renderBrand(): string {
 }
 
 function renderArticle(page: Page): string {
+  const isApiPage = page.sourcePath.startsWith("openapi:");
   const pageIndex = pages.findIndex((candidate) => candidate.route === page.route);
   const previous = pages[pageIndex - 1];
   const next = pages[pageIndex + 1];
   const sectionLabel = currentSectionLabel(page.route);
 
-  return `<article class="doc">
-    <header>
+  return `<article class="doc${isApiPage ? " api-doc" : ""}">
+    ${isApiPage ? "" : `<header>
       <p class="eyebrow">${escapeHtml(sectionLabel ?? page.sourcePath)}</p>
       <h1>${escapeHtml(page.title)}</h1>
       ${page.description ? `<p class="description">${escapeHtml(page.description)}</p>` : ""}
-    </header>
-    <div class="content">${stripLeadingH1(page.html)}</div>
+    </header>`}
+    <div class="content">${isApiPage ? page.html : stripLeadingH1(page.html)}</div>
     <footer class="pager">
       ${previous ? `<a href="${previous.route}"><span>Previous</span>${escapeHtml(previous.title)}</a>` : "<span></span>"}
       ${next ? `<a href="${next.route}"><span>Next</span>${escapeHtml(next.title)}</a>` : ""}
@@ -558,6 +559,8 @@ function iconForLabel(label: string): string {
 }
 
 function renderTableOfContents(page: Page): string {
+  if (page.sourcePath.startsWith("openapi:")) return "";
+
   const headings = Array.from(page.html.matchAll(/<h([23]) id="([^"]+)">([\s\S]*?)<\/h\1>/g))
     .map((match) => ({
       depth: Number(match[1]),
@@ -1154,6 +1157,37 @@ h1 { margin: 0; color: var(--text); font-size: 32px; line-height: 1.18; letter-s
 .content th, .content td { border-bottom: 1px solid var(--line); padding: 9px 10px; text-align: left; vertical-align: top; }
 .heading-anchor { text-decoration: none !important; color: inherit !important; }
 
+.api-doc { grid-column: 1 / -1; max-width: none; }
+.api-doc .content { margin-top: 0; }
+.api-reference-page { display: grid; grid-template-columns: minmax(0, 720px) minmax(320px, 430px); align-items: start; gap: 56px; }
+.api-reference-main h1 { margin-bottom: 14px; }
+.api-description { margin: 0 0 24px; color: var(--muted); font-size: 16px; line-height: 1.6; }
+.api-route-row { display: flex; align-items: center; gap: 10px; overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); padding: 10px 12px; }
+.api-route-row code { flex: 1 0 auto; background: transparent; padding: 0; color: var(--text); font-size: 13px; }
+.api-method { flex: 0 0 auto; min-width: 56px; border-radius: 5px; padding: 5px 8px; color: white; text-align: center; font: 700 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.api-method-get { background: #2563eb; }
+.api-method-post { background: #0f766e; }
+.api-method-put, .api-method-patch { background: #9333ea; }
+.api-method-delete { background: #dc2626; }
+.api-method-options, .api-method-head { background: #64748b; }
+.api-section { margin-top: 34px; }
+.api-section h2 { margin: 0 0 12px; padding: 0; border-bottom: 1px solid var(--line); padding-bottom: 10px; font-size: 18px; }
+.api-param { border-bottom: 1px solid var(--line); padding: 14px 0; }
+.api-param > div { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.api-param code { background: transparent; padding: 0; color: var(--text); font-size: 13px; font-weight: 650; }
+.api-param p { margin: 5px 0 0; color: var(--muted); font-size: 13.5px; line-height: 1.55; }
+.api-required { border-radius: 999px; background: color-mix(in srgb, var(--primary) 12%, var(--surface)); color: var(--primary); padding: 2px 7px; font-size: 11px; font-weight: 700; }
+.api-schema-note { margin: 0 0 14px; color: var(--muted); font-size: 13.5px; }
+.api-schema-note code { background: var(--surface-alt); padding: 2px 5px; }
+.api-variant { margin: 16px 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); padding: 14px 16px 4px; }
+.api-variant h3 { margin: 0 0 2px; color: var(--text); font-size: 14px; font-weight: 720; }
+.api-variant .api-param:last-child { border-bottom: 0; }
+.api-example-panel { position: sticky; top: calc(var(--topbar-height) + 30px); display: grid; gap: 14px; min-width: 0; }
+.api-example-block { overflow: hidden; border: 1px solid color-mix(in srgb, var(--line) 72%, #000); border-radius: var(--radius); background: var(--code); color: #e5edf5; }
+.api-example-heading { border-bottom: 1px solid rgba(255, 255, 255, .09); padding: 10px 14px; color: #aebaca; font-size: 12px; font-weight: 700; }
+.api-example-block pre { max-height: 420px; margin: 0; overflow: auto; border: 0; border-radius: 0; background: transparent; padding: 14px; font-size: 12px; line-height: 1.55; }
+.api-example-block code { background: transparent; padding: 0; color: inherit; }
+
 .mdx-card-group, .mdx-tabs, .mdx-columns { display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: 12px; margin: 22px 0; }
 .mdx-tabs { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin: 20px 0; }
 .mdx-card, .mdx-tab, .mdx-accordion, .mdx-code-group, .mdx-frame, .pager a { padding: 14px; }
@@ -1243,6 +1277,8 @@ html[data-theme="dark"] .search-panel { background: rgba(0, 0, 0, .52); }
   .topbar-inner { grid-template-columns: minmax(180px, var(--sidebar-width)) minmax(220px, 1fr) auto; }
   .app { grid-template-columns: 244px minmax(0, 1fr); }
   .main { grid-template-columns: minmax(0, 760px); padding-left: 36px; padding-right: 0; }
+  .api-reference-page { grid-template-columns: 1fr; gap: 32px; }
+  .api-example-panel { position: static; }
   .toc { display: none; }
 }
 @media (max-width: 820px) {
@@ -1273,6 +1309,10 @@ html[data-theme="dark"] .search-panel { background: rgba(0, 0, 0, .52); }
   .description { font-size: 17px; }
   .content { margin-top: 36px; }
   .mdx-card-group, .mdx-tabs, .mdx-columns, .pager { grid-template-columns: 1fr; }
+  .api-reference-page { display: block; }
+  .api-example-panel { margin-top: 28px; }
+  .api-route-row { align-items: flex-start; flex-direction: column; }
+  .api-route-row code { white-space: nowrap; max-width: 100%; overflow-x: auto; }
   .mdx-card { min-height: 132px; }
   .content > .mdx-card { min-height: 124px; }
   .pager a:last-child { text-align: left; }

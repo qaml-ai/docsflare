@@ -31,6 +31,19 @@ type PageRef = {
   path: string;
 };
 
+type OpenApiOperation = {
+  specUrl: string;
+  spec: Record<string, unknown>;
+  method: string;
+  path: string;
+  tag: string;
+  route: string;
+  title: string;
+  navTitle: string;
+  description: string;
+  operation: Record<string, unknown>;
+};
+
 type NavGroup = {
   title: string;
   pages: PageRef[];
@@ -80,6 +93,105 @@ function readConfig(): { config: MintConfig; filename: string } {
   throw new Error(`Missing docs.json or mint.json in ${root}. Run "docsflare init" to create starter content.`);
 }
 
+function collectOpenApiSources(navigation: unknown): string[] {
+  const sources = new Set<string>();
+
+  function visit(value: unknown) {
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+
+    if (!value || typeof value !== "object") return;
+    const record = value as Record<string, unknown>;
+    const source = firstString(record.openapi);
+    if (source) sources.add(source);
+
+    for (const key of ["pages", "groups", "tabs", "anchors", "dropdowns", "versions"]) {
+      if (record[key]) visit(record[key]);
+    }
+  }
+
+  visit(navigation);
+  return [...sources];
+}
+
+async function loadOpenApiOperations(navigation: unknown): Promise<Map<string, OpenApiOperation[]>> {
+  const sources = collectOpenApiSources(navigation);
+  const operationsBySource = new Map<string, OpenApiOperation[]>();
+
+  for (const source of sources) {
+    const spec = await readOpenApiSpec(source);
+    operationsBySource.set(source, operationsFromSpec(source, spec));
+  }
+
+  return operationsBySource;
+}
+
+async function readOpenApiSpec(source: string): Promise<Record<string, unknown>> {
+  if (/^https?:\/\//.test(source)) {
+    const url = new URL(source);
+    if (!url.searchParams.has("format")) url.searchParams.set("format", "json");
+    const response = await fetch(url, { headers: { accept: "application/json" } });
+    if (!response.ok) {
+      throw new Error(`Failed to fetch OpenAPI schema ${source}: ${response.status} ${response.statusText}`);
+    }
+    return await response.json() as Record<string, unknown>;
+  }
+
+  return JSON.parse(readFileSync(path.resolve(root, source), "utf8")) as Record<string, unknown>;
+}
+
+function operationsFromSpec(source: string, spec: Record<string, unknown>): OpenApiOperation[] {
+  const paths = recordFromUnknown(spec.paths);
+  const operations: OpenApiOperation[] = [];
+
+  for (const [operationPath, pathItem] of Object.entries(paths)) {
+    const pathRecord = recordFromUnknown(pathItem);
+    for (const method of ["get", "post", "put", "patch", "delete", "options", "head"]) {
+      const operation = recordFromUnknown(pathRecord[method]);
+      if (!operation) continue;
+      const tag = firstString(arrayFromUnknown(operation.tags)[0]) ?? firstPathSegment(operationPath);
+      const title = firstString(operation.summary, operation.operationId) ?? humanize(operationPath);
+
+      operations.push({
+        specUrl: source,
+        spec,
+        method,
+        path: operationPath,
+        tag,
+        route: `/api-reference/${slugify(tag)}/${slugify(title)}`,
+        title,
+        navTitle: `${method.toUpperCase()} ${title}`,
+        description: firstString(operation.description) ?? "",
+        operation
+      });
+    }
+  }
+
+  return operations.sort((a, b) => a.tag.localeCompare(b.tag) || methodOrder(a.method) - methodOrder(b.method) || a.route.localeCompare(b.route));
+}
+
+function recordFromUnknown(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function arrayFromUnknown(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function firstPathSegment(value: string): string {
+  const segments = value.split("/").filter(Boolean);
+  if (segments[0] === "api" && /^v\d+$/i.test(segments[1] ?? "")) {
+    return segments[2] ?? "api";
+  }
+  return segments[0] ?? "api";
+}
+
+function methodOrder(method: string): number {
+  return ["get", "post", "put", "patch", "delete", "options", "head"].indexOf(method);
+}
+
 function pageRefFromUnknown(value: unknown): PageRef | undefined {
   if (typeof value === "string") {
     if (isExternal(value)) return undefined;
@@ -97,7 +209,7 @@ function pageRefFromUnknown(value: unknown): PageRef | undefined {
   };
 }
 
-function normalizeNavigation(navigation: unknown): NavGroup[] {
+function normalizeNavigation(navigation: unknown, openApiOperations: Map<string, OpenApiOperation[]>): NavGroup[] {
   const groups: NavGroup[] = [];
   const uncategorized: PageRef[] = [];
 
@@ -117,9 +229,9 @@ function normalizeNavigation(navigation: unknown): NavGroup[] {
     const record = value as Record<string, unknown>;
     const ownTitle = firstString(record.group, record.tab, record.anchor, record.title, record.name, record.label);
     const title = ownTitle && inheritedTitle && record.group ? `${inheritedTitle} / ${ownTitle}` : ownTitle ?? inheritedTitle;
-    const pages = collectPages(record.pages);
+    const pages = collectPages(record.pages, openApiOperations);
     if (record.openapi) {
-      pages.push(...collectOpenApiPageRefs());
+      pages.push(...collectOpenApiPageRefs(record.openapi, openApiOperations));
     }
 
     if (title && pages.length > 0) {
@@ -146,7 +258,7 @@ function hasNestedNavigation(value: unknown): boolean {
   return Boolean(record.pages || record.groups || record.tabs || record.anchors || record.dropdowns || record.versions);
 }
 
-function collectPages(value: unknown): PageRef[] {
+function collectPages(value: unknown, openApiOperations: Map<string, OpenApiOperation[]>): PageRef[] {
   if (!Array.isArray(value)) return [];
   const pages: PageRef[] = [];
 
@@ -160,27 +272,23 @@ function collectPages(value: unknown): PageRef[] {
     if (item && typeof item === "object") {
       const record = item as Record<string, unknown>;
       if (record.openapi) {
-        pages.push(...collectOpenApiPageRefs());
+        pages.push(...collectOpenApiPageRefs(record.openapi, openApiOperations));
       }
       const nested = record.pages;
-      pages.push(...collectPages(nested));
+      pages.push(...collectPages(nested, openApiOperations));
     }
   }
 
   return pages;
 }
 
-function collectOpenApiPageRefs(): PageRef[] {
-  return discoverMarkdownFiles()
-    .filter((file) => {
-      const parsed = matter(readFileSync(path.join(root, file), "utf8"));
-      return typeof parsed.data.openapi === "string";
-    })
-    .sort((a, b) => {
-      const directoryCompare = path.dirname(a).localeCompare(path.dirname(b));
-      return directoryCompare || a.localeCompare(b);
-    })
-    .map((file) => ({ path: stripExtension(file) }));
+function collectOpenApiPageRefs(source: unknown, openApiOperations: Map<string, OpenApiOperation[]>): PageRef[] {
+  const sourceKey = typeof source === "string" ? source : undefined;
+  const operations = sourceKey ? openApiOperations.get(sourceKey) ?? [] : [];
+  return operations.map((operation) => ({
+    title: operation.navTitle,
+    path: operation.route.replace(/^\//, "")
+  }));
 }
 
 function discoverMarkdownFiles(dir = root): string[] {
@@ -387,18 +495,265 @@ function humanize(value: string): string {
   return stripExtension(path.basename(value)).replace(/[-_]/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function defaultOpenApiMarkdown(title: string, operation: string): string {
-  const [method = "", endpoint = ""] = operation.split(/\s+/, 2);
-  const methodLabel = method.toUpperCase();
+function slugify(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/['"]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "operation";
+}
 
-  return `# ${title}
+function escapeHtml(value: unknown): string {
+  return String(value).replace(/[&<>"']/g, (char) => {
+    switch (char) {
+      case "&":
+        return "&amp;";
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      case '"':
+        return "&quot;";
+      default:
+        return "&#039;";
+    }
+  });
+}
 
-\`\`\`http
-${methodLabel}${endpoint ? ` ${endpoint}` : ""}
-\`\`\`
+function defaultOpenApiMarkdown(openApi: OpenApiOperation): string {
+  const methodLabel = openApi.method.toUpperCase();
+  const description = openApi.description ? `\n<p class="api-description">${escapeHtml(openApi.description)}</p>` : "";
+  const parameters = renderOpenApiParameters(openApi);
+  const requestBody = renderOpenApiRequestBody(openApi);
+  const response = renderOpenApiResponse(openApi);
+  const curl = renderCurlExample(openApi);
+  const responseExample = renderResponseExample(openApi);
 
-This endpoint is defined in the OpenAPI reference.
-`;
+  return `<div class="api-reference-page">
+  <div class="api-reference-main">
+    <p class="eyebrow">${escapeHtml(openApi.tag)}</p>
+    <h1>${escapeHtml(openApi.title)}</h1>
+    ${description}
+    <div class="api-route-row">
+      <span class="api-method api-method-${openApi.method}">${methodLabel}</span>
+      <code>${escapeHtml(openApi.path)}</code>
+    </div>
+    ${parameters}
+    ${requestBody}
+    ${response}
+  </div>
+  <aside class="api-example-panel">
+    <div class="api-example-block">
+      <div class="api-example-heading">cURL</div>
+      <pre><code>${escapeHtml(curl)}</code></pre>
+    </div>
+    <div class="api-example-block">
+      <div class="api-example-heading">200</div>
+      <pre><code>${escapeHtml(responseExample)}</code></pre>
+    </div>
+  </aside>
+</div>`;
+}
+
+function renderOpenApiParameters(openApi: OpenApiOperation): string {
+  const operationParameters = arrayFromUnknown(openApi.operation.parameters);
+  const pathParameters = operationParameters.filter((parameter) => recordFromUnknown(parameter).in === "path");
+  const queryParameters = operationParameters.filter((parameter) => recordFromUnknown(parameter).in === "query");
+  const headerParameters = [
+    {
+      name: "Authorization",
+      in: "header",
+      required: true,
+      description: "API key authentication using Bearer scheme"
+    }
+  ];
+  const sections = [
+    parameterSection("Headers", headerParameters),
+    parameterSection("Path Parameters", pathParameters),
+    parameterSection("Query Parameters", queryParameters)
+  ].filter(Boolean);
+
+  return sections.length ? `<section class="api-section">${sections.join("")}</section>` : "";
+}
+
+function parameterSection(title: string, parameters: unknown[]): string {
+  if (parameters.length === 0) return "";
+
+  return `<h2>${escapeHtml(title)}</h2>
+${parameters.map((parameter) => {
+  const record = recordFromUnknown(parameter);
+  const schema = resolveSchema(record.schema, record);
+  const type = schemaTypeLabel(schema);
+  const required = record.required === true ? '<span class="api-required">required</span>' : "";
+  const description = firstString(record.description) ?? "";
+  return `<div class="api-param">
+    <div><code>${escapeHtml(firstString(record.name) ?? "parameter")}</code>${required}</div>
+    <p>${escapeHtml(type)}${description ? ` - ${escapeHtml(description)}` : ""}</p>
+  </div>`;
+}).join("")}`;
+}
+
+function renderOpenApiRequestBody(openApi: OpenApiOperation): string {
+  const requestBody = recordFromUnknown(openApi.operation.requestBody);
+  const content = recordFromUnknown(requestBody.content);
+  const json = recordFromUnknown(content["application/json"]);
+  const schema = resolveSchema(json.schema, openApi.spec);
+  if (Object.keys(schema).length === 0) return "";
+
+  return `<section class="api-section">
+    <h2>Request Body</h2>
+    ${renderSchemaFields(schema, openApi.spec)}
+  </section>`;
+}
+
+function renderOpenApiResponse(openApi: OpenApiOperation): string {
+  const responses = recordFromUnknown(openApi.operation.responses);
+  const response = recordFromUnknown(responses["200"] ?? Object.values(responses)[0]);
+  const content = recordFromUnknown(response.content);
+  const json = recordFromUnknown(content["application/json"]);
+  const schema = resolveSchema(json.schema, openApi.spec);
+  const description = firstString(response.description);
+
+  if (Object.keys(schema).length === 0 && !description) return "";
+
+  return `<section class="api-section">
+    <h2>Response</h2>
+    ${description ? `<p>${escapeHtml(description)}</p>` : ""}
+    ${renderSchemaFields(schema, openApi.spec)}
+  </section>`;
+}
+
+function renderSchemaFields(schema: Record<string, unknown>, spec: Record<string, unknown>, depth = 0): string {
+  const resolved = resolveSchema(schema, spec);
+  const variants = [...arrayFromUnknown(resolved.oneOf), ...arrayFromUnknown(resolved.anyOf)];
+  if (variants.length > 0 && depth < 2) {
+    const discriminator = recordFromUnknown(resolved.discriminator);
+    const discriminatorProperty = firstString(discriminator.propertyName);
+
+    return `${discriminatorProperty ? `<p class="api-schema-note">One of these shapes, selected by <code>${escapeHtml(discriminatorProperty)}</code>.</p>` : ""}
+${variants.map((variant, index) => {
+  const variantSchema = resolveSchema(variant, spec);
+  return `<div class="api-variant">
+    <h3>${escapeHtml(schemaVariantLabel(variant, index))}</h3>
+    ${renderSchemaFields(variantSchema, spec, depth + 1)}
+  </div>`;
+}).join("")}`;
+  }
+
+  const combinedSchema = mergeAllOfSchemas(resolved, spec);
+  const target = combinedSchema.type === "array" ? resolveSchema(recordFromUnknown(combinedSchema.items), spec) : combinedSchema;
+  const properties = recordFromUnknown(target.properties);
+  const required = new Set(arrayFromUnknown(target.required).filter((item): item is string => typeof item === "string"));
+
+  if (Object.keys(properties).length === 0) {
+    return `<div class="api-param"><div><code>${escapeHtml(schemaTypeLabel(combinedSchema))}</code></div></div>`;
+  }
+
+  return Object.entries(properties).slice(0, 18).map(([name, property]) => {
+    const propertySchema = resolveSchema(property, spec);
+    const description = firstString(propertySchema.description);
+    return `<div class="api-param">
+      <div><code>${escapeHtml(name)}</code>${required.has(name) ? '<span class="api-required">required</span>' : ""}</div>
+      <p>${escapeHtml(schemaTypeLabel(propertySchema))}${description ? ` - ${escapeHtml(description)}` : ""}</p>
+    </div>`;
+  }).join("");
+}
+
+function schemaVariantLabel(schema: unknown, index: number): string {
+  const record = recordFromUnknown(schema);
+  const ref = firstString(record.$ref);
+  if (ref) return humanize(ref.split("/").at(-1) ?? `Variant ${index + 1}`);
+  return firstString(record.title) ?? `Variant ${index + 1}`;
+}
+
+function mergeAllOfSchemas(schema: Record<string, unknown>, spec: Record<string, unknown>): Record<string, unknown> {
+  const allOf = arrayFromUnknown(schema.allOf);
+  if (allOf.length === 0) return schema;
+
+  return allOf.reduce<Record<string, unknown>>((merged, item) => {
+    const resolved = mergeAllOfSchemas(resolveSchema(item, spec), spec);
+    return {
+      ...merged,
+      ...resolved,
+      properties: {
+        ...recordFromUnknown(merged.properties),
+        ...recordFromUnknown(resolved.properties)
+      },
+      required: [
+        ...arrayFromUnknown(merged.required),
+        ...arrayFromUnknown(resolved.required)
+      ]
+    };
+  }, { type: "object" });
+}
+
+function renderCurlExample(openApi: OpenApiOperation): string {
+  const method = openApi.method.toUpperCase();
+  const body = recordFromUnknown(openApi.operation.requestBody);
+  const hasBody = Object.keys(body).length > 0;
+  return [
+    `curl --request ${method} \\`,
+    `  --url https://api.camelai.com${openApi.path} \\`,
+    "  --header 'Authorization: Bearer <token>'" + (hasBody ? " \\" : ""),
+    hasBody ? "  --header 'Content-Type: application/json' \\" : "",
+    hasBody ? "  --data '{}'" : ""
+  ].filter(Boolean).join("\n");
+}
+
+function renderResponseExample(openApi: OpenApiOperation): string {
+  const responses = recordFromUnknown(openApi.operation.responses);
+  const response = recordFromUnknown(responses["200"] ?? Object.values(responses)[0]);
+  const content = recordFromUnknown(response.content);
+  const json = recordFromUnknown(content["application/json"]);
+  const schema = resolveSchema(json.schema, openApi.spec);
+  return JSON.stringify(sampleFromSchema(schema, openApi.spec), null, 2);
+}
+
+function resolveSchema(value: unknown, spec: Record<string, unknown>): Record<string, unknown> {
+  const schema = recordFromUnknown(value);
+  const ref = firstString(schema.$ref);
+  if (!ref?.startsWith("#/")) return schema;
+
+  return ref.slice(2).split("/").reduce<unknown>((current, segment) => recordFromUnknown(current)[segment], spec) as Record<string, unknown>;
+}
+
+function sampleFromSchema(schema: Record<string, unknown>, spec: Record<string, unknown>, depth = 0): unknown {
+  const resolved = resolveSchema(schema, spec);
+  if (depth > 4) return "<unknown>";
+  if (resolved.example !== undefined) return resolved.example;
+  if (resolved.default !== undefined) return resolved.default;
+  if (Array.isArray(resolved.enum)) return resolved.enum[0];
+  const variant = arrayFromUnknown(resolved.oneOf)[0] ?? arrayFromUnknown(resolved.anyOf)[0];
+  if (variant) return sampleFromSchema(recordFromUnknown(variant), spec, depth + 1);
+  if (arrayFromUnknown(resolved.allOf).length > 0) return sampleFromSchema(mergeAllOfSchemas(resolved, spec), spec, depth + 1);
+
+  if (resolved.type === "array") {
+    return [sampleFromSchema(recordFromUnknown(resolved.items), spec, depth + 1)];
+  }
+
+  if (resolved.type === "object" || resolved.properties) {
+    const properties = recordFromUnknown(resolved.properties);
+    return Object.fromEntries(Object.entries(properties).slice(0, 12).map(([name, property]) => [name, sampleFromSchema(recordFromUnknown(property), spec, depth + 1)]));
+  }
+
+  if (resolved.format === "date-time") return "2023-11-07T05:31:56Z";
+  if (resolved.format === "uuid") return "123e4567-e89b-12d3-a456-426614174000";
+  if (resolved.type === "integer" || resolved.type === "number") return 123;
+  if (resolved.type === "boolean") return true;
+  if (resolved.type === "string") return "<string>";
+  return "<unknown>";
+}
+
+function schemaTypeLabel(schema: Record<string, unknown>): string {
+  if (arrayFromUnknown(schema.oneOf).length > 0) return "oneOf";
+  if (arrayFromUnknown(schema.anyOf).length > 0) return "anyOf";
+  if (arrayFromUnknown(schema.allOf).length > 0) return "object";
+  const type = firstString(schema.type) ?? (schema.properties ? "object" : "any");
+  const format = firstString(schema.format);
+  const enumValues = arrayFromUnknown(schema.enum).filter((value): value is string => typeof value === "string");
+  if (enumValues.length > 0) return `enum<${type}>: ${enumValues.join(", ")}`;
+  return format ? `${type}<${format}>` : type;
 }
 
 function stripExtension(value: string): string {
@@ -440,7 +795,7 @@ function extractNavbarLinks(config: MintConfig): NavLink[] {
   });
 }
 
-function extractNavigationTabs(navigation: unknown): NavLink[] {
+function extractNavigationTabs(navigation: unknown, openApiOperations: Map<string, OpenApiOperation[]>): NavLink[] {
   const tabs = navigationRecord(navigation).tabs;
   if (!Array.isArray(tabs)) return [];
 
@@ -448,7 +803,7 @@ function extractNavigationTabs(navigation: unknown): NavLink[] {
     if (!tab || typeof tab !== "object") return [];
     const record = tab as Record<string, unknown>;
     const label = firstString(record.tab, record.title, record.name, record.label);
-    const firstPage = collectPages(record.groups).at(0) ?? collectPages(record.pages).at(0);
+    const firstPage = collectPages(record.groups, openApiOperations).at(0) ?? collectPages(record.pages, openApiOperations).at(0);
     const href = firstPage ? `/${pageKey(firstPage.path)}` : "#";
     return label ? [{ label, href }] : [];
   });
@@ -511,7 +866,8 @@ function contentTypeForPath(filePath: string): string | undefined {
 
 async function main() {
   const { config, filename } = readConfig();
-  const nav = normalizeNavigation(config.navigation);
+  const openApiOperations = await loadOpenApiOperations(config.navigation);
+  const nav = normalizeNavigation(config.navigation, openApiOperations);
   const navPagePaths = new Set(nav.flatMap((group) => group.pages.map((page) => pageKey(page.path))));
   const allFiles = discoverMarkdownFiles();
   const filesByKey = new Map(allFiles.map((file) => [pageKey(file), file]));
@@ -535,9 +891,8 @@ async function main() {
     const parsed = matter(raw);
     const route = typeof parsed.data.path === "string" ? parsed.data.path : routeFromPath(sourcePath);
     const title = typeof parsed.data.title === "string" ? parsed.data.title : titleFromMarkdown(parsed.content, sourcePath);
-    const openApiOperation = typeof parsed.data.openapi === "string" ? parsed.data.openapi.trim() : undefined;
     const description = typeof parsed.data.description === "string" ? parsed.data.description : "";
-    const markdown = parsed.content.trim() || (openApiOperation ? defaultOpenApiMarkdown(title, openApiOperation) : "");
+    const markdown = parsed.content.trim();
     let html: string;
     try {
       html = await renderMdx(markdown, sourcePath);
@@ -557,17 +912,35 @@ async function main() {
     });
   }
 
+  const virtualRoutes = new Set(pages.map((page) => pageKey(page.route)));
+  for (const operation of [...openApiOperations.values()].flat()) {
+    if (virtualRoutes.has(pageKey(operation.route))) continue;
+    const sourcePath = `openapi:${operation.method.toUpperCase()} ${operation.path}`;
+    const markdown = defaultOpenApiMarkdown(operation);
+
+    virtualRoutes.add(pageKey(operation.route));
+    pages.push({
+      title: operation.title,
+      description: operation.description,
+      route: operation.route,
+      sourcePath,
+      html: markdown,
+      markdown
+    });
+  }
+
   const normalizedNav = nav.length > 0
     ? nav.map((group) => ({
         title: group.title,
         pages: group.pages
           .map((page) => {
             const resolved = resolvePagePath(page.path);
-            if (!resolved) return undefined;
-            const builtPage = pages.find((candidate) => candidate.sourcePath === resolved);
+            const builtPage = resolved
+              ? pages.find((candidate) => candidate.sourcePath === resolved)
+              : pages.find((candidate) => pageKey(candidate.route) === pageKey(page.path));
             if (!builtPage) return undefined;
             return {
-              title: page.title ?? titleBySource.get(pageKey(resolved)) ?? humanize(page.path),
+              title: page.title ?? (resolved ? titleBySource.get(pageKey(resolved)) : undefined) ?? builtPage.title ?? humanize(page.path),
               route: builtPage.route
             };
           })
@@ -593,7 +966,7 @@ async function main() {
       },
       globalAnchors: extractGlobalAnchors(config.navigation)
       ,
-      navTabs: extractNavigationTabs(config.navigation)
+      navTabs: extractNavigationTabs(config.navigation, openApiOperations)
     },
     configFile: filename,
     nav: normalizedNav,
