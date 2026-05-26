@@ -651,6 +651,9 @@ function clientScript(): string {
   let activeResultIndex = -1;
   let searchLoading = false;
   let navigationController;
+  let trackedHeadings = [];
+  let trackedTocLinks = [];
+  let scrollSpyFrame;
 
   const themeIcons = {
     light: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 14.5A8.5 8.5 0 0 1 9.5 3 7 7 0 1 0 21 14.5z"></path></svg>',
@@ -877,6 +880,51 @@ function clientScript(): string {
     }
   }
 
+  function setupPageTracking() {
+    const sidebar = document.querySelector('.sidebar');
+    const activeSidebarLink = document.querySelector('.sidebar nav a.active');
+    if (sidebar && activeSidebarLink) {
+      const sidebarRect = sidebar.getBoundingClientRect();
+      const linkRect = activeSidebarLink.getBoundingClientRect();
+      if (linkRect.top < sidebarRect.top + 20 || linkRect.bottom > sidebarRect.bottom - 20) {
+        activeSidebarLink.scrollIntoView({ block: 'nearest' });
+      }
+    }
+
+    trackedHeadings = Array.from(document.querySelectorAll('.content h2[id], .content h3[id]'));
+    trackedTocLinks = Array.from(document.querySelectorAll('.toc a[href^="#"]'));
+    syncActiveSection();
+  }
+
+  function requestSectionSync() {
+    if (scrollSpyFrame) return;
+    scrollSpyFrame = requestAnimationFrame(() => {
+      scrollSpyFrame = undefined;
+      syncActiveSection();
+    });
+  }
+
+  function syncActiveSection() {
+    if (!trackedHeadings.length || !trackedTocLinks.length) return;
+
+    const topbarHeight = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--topbar-height')) || 0;
+    const topOffset = topbarHeight + 36;
+    let activeHeading = trackedHeadings[0];
+
+    for (const heading of trackedHeadings) {
+      if (heading.getBoundingClientRect().top <= topOffset) {
+        activeHeading = heading;
+      } else {
+        break;
+      }
+    }
+
+    const activeHash = '#' + activeHeading.id;
+    trackedTocLinks.forEach((link) => {
+      link.classList.toggle('active', link.getAttribute('href') === activeHash);
+    });
+  }
+
   function linkForClientNavigation(event) {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     const target = event.target instanceof Element ? event.target : undefined;
@@ -927,6 +975,7 @@ function clientScript(): string {
     } else {
       window.scrollTo({ top: 0 });
     }
+    setupPageTracking();
   }
 
   function escapeHtmlClient(value) {
@@ -1003,6 +1052,9 @@ function clientScript(): string {
   panel.addEventListener('click', (event) => {
     if (event.target === panel) closeSearch();
   });
+  window.addEventListener('scroll', requestSectionSync, { passive: true });
+  window.addEventListener('resize', requestSectionSync);
+  setupPageTracking();
 })();`;
 }
 
@@ -1132,7 +1184,8 @@ h1 { margin: 0; color: var(--text); font-size: 32px; line-height: 1.18; letter-s
 .toc { position: sticky; top: calc(var(--topbar-height) + 30px); height: fit-content; max-height: calc(100vh - var(--topbar-height) - 60px); overflow-y: auto; border-left: 1px solid var(--line); padding-left: 16px; color: var(--muted); font-size: 12.5px; }
 .toc p { margin: 0 0 10px; color: var(--text); font-weight: 680; }
 .toc a { display: block; padding: 4px 0; color: var(--muted); line-height: 1.45; }
-.toc a:hover { color: var(--primary); }
+.toc a:hover, .toc a.active { color: var(--primary); }
+.toc a.active { font-weight: 680; }
 .toc .depth-3 { padding-left: 12px; }
 
 .search-panel { position: fixed; inset: 0; background: rgba(13, 17, 23, .42); padding: 10vh 18px 18px; z-index: 100; }
