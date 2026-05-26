@@ -601,7 +601,7 @@ function renderTableOfContents(page: Page): string {
     .map((match) => ({
       depth: Number(match[1]),
       id: match[2],
-      title: stripTags(match[3]).replace(/^#\s*/, "").trim()
+      title: decodeHtmlEntities(stripTags(match[3])).replace(/^#\s*/, "").trim()
     }))
     .filter((heading) => heading.title.length > 0)
     .slice(0, 12);
@@ -643,6 +643,27 @@ function groupDisplayTitle(title: string): string {
 
 function stripTags(value: string): string {
   return value.replace(/<[^>]*>/g, "");
+}
+
+function decodeHtmlEntities(value: string): string {
+  const namedEntities: Record<string, string> = {
+    amp: "&",
+    apos: "'",
+    gt: ">",
+    lt: "<",
+    quot: "\""
+  };
+
+  return value.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (entity, code) => {
+    const lowerCode = code.toLowerCase();
+    if (lowerCode.startsWith("#x")) {
+      return String.fromCodePoint(Number.parseInt(lowerCode.slice(2), 16));
+    }
+    if (lowerCode.startsWith("#")) {
+      return String.fromCodePoint(Number.parseInt(lowerCode.slice(1), 10));
+    }
+    return namedEntities[lowerCode] ?? entity;
+  });
 }
 
 function renderLegacyNav(currentPath: string): string {
