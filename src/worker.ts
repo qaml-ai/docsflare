@@ -308,6 +308,17 @@ function renderShell(page: Page | undefined, url: URL, status = 200): string {
   <title>${escapeHtml(title)}</title>
   <meta name="description" content="${escapeHtml(description)}">
   ${docsContent.site.favicon ? `<link rel="icon" href="${escapeHtml(docsContent.site.favicon)}">` : ""}
+  <script>
+    try {
+      const savedTheme = localStorage.getItem("docsflare-theme") || document.cookie.match(/(?:^|; )docsflare-theme=(dark|light)/)?.[1];
+      const systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      document.documentElement.dataset.theme = savedTheme || (systemDark ? "dark" : "light");
+    } catch {
+      const savedTheme = document.cookie.match(/(?:^|; )docsflare-theme=(dark|light)/)?.[1];
+      const systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      document.documentElement.dataset.theme = savedTheme || (systemDark ? "dark" : "light");
+    }
+  </script>
   <style>${css()}</style>
 </head>
 <body>
@@ -323,7 +334,11 @@ function renderShell(page: Page | undefined, url: URL, status = 200): string {
       <div class="top-actions">
         ${renderExternalLinks()}
         ${docsContent.site.navbar?.primary ? `<a class="primary-action" href="${escapeHtml(docsContent.site.navbar.primary.href)}">${escapeHtml(docsContent.site.navbar.primary.label)}</a>` : ""}
-        <button class="theme-toggle" type="button" aria-label="Toggle theme">*</button>
+        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Switch to dark theme" title="Switch to dark theme">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M21 14.5A8.5 8.5 0 0 1 9.5 3 7 7 0 1 0 21 14.5z"></path>
+          </svg>
+        </button>
       </div>
       <button class="search-trigger top-search" type="button" data-open-search>
         <span>Search...</span>
@@ -595,11 +610,37 @@ function clientScript(): string {
   const chatInput = document.querySelector('[data-chat-input]');
   const openChatButton = document.querySelector('[data-open-chat]');
   const closeChatButton = document.querySelector('[data-close-chat]');
+  const themeButton = document.querySelector('[data-theme-toggle]');
   const searchIndex = JSON.parse(document.getElementById('docs-search-index')?.textContent || '[]');
   const responseCache = new Map();
   const chatHistory = [];
   let controller;
   let debounceTimer;
+  let activeResultIndex = -1;
+  let searchLoading = false;
+
+  const themeIcons = {
+    light: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 14.5A8.5 8.5 0 0 1 9.5 3 7 7 0 1 0 21 14.5z"></path></svg>',
+    dark: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg>'
+  };
+
+  function setTheme(theme) {
+    const normalized = theme === 'dark' ? 'dark' : 'light';
+    document.documentElement.dataset.theme = normalized;
+    try {
+      localStorage.setItem('docsflare-theme', normalized);
+    } catch {}
+    document.cookie = 'docsflare-theme=' + normalized + '; path=/; max-age=31536000; SameSite=Lax';
+
+    if (themeButton) {
+      const nextTheme = normalized === 'dark' ? 'light' : 'dark';
+      themeButton.innerHTML = themeIcons[normalized];
+      themeButton.setAttribute('aria-label', 'Switch to ' + nextTheme + ' theme');
+      themeButton.setAttribute('title', 'Switch to ' + nextTheme + ' theme');
+    }
+  }
+
+  setTheme(document.documentElement.dataset.theme || 'light');
 
   function openSearch() {
     panel.hidden = false;
@@ -611,6 +652,8 @@ function clientScript(): string {
     panel.hidden = true;
     input.value = '';
     results.innerHTML = '';
+    activeResultIndex = -1;
+    setSearchLoading(false);
     if (controller) controller.abort();
   }
 
@@ -669,12 +712,18 @@ function clientScript(): string {
 
     if (!cleanQuery) {
       results.innerHTML = '';
+      activeResultIndex = -1;
+      setSearchLoading(false);
       return;
     }
 
     renderLocalResults(cleanQuery);
+    setSearchLoading(true);
     debounceTimer = setTimeout(() => searchAi(cleanQuery).catch((error) => {
-      if (error.name !== 'AbortError') results.dataset.provider = 'local';
+      if (error.name !== 'AbortError') {
+        results.dataset.provider = 'local';
+        setSearchLoading(false);
+      }
     }), 160);
   }
 
@@ -684,12 +733,14 @@ function clientScript(): string {
     results.innerHTML = items.length
       ? renderResults(items, 'Instant results')
       : '<p class="muted">No local results found. Checking AI Search...</p>';
+    setActiveResult(-1);
   }
 
   async function searchAi(query) {
     const cacheKey = query.toLowerCase();
     if (responseCache.has(cacheKey)) {
       renderAiResults(responseCache.get(cacheKey));
+      setSearchLoading(false);
       return;
     }
 
@@ -699,14 +750,17 @@ function clientScript(): string {
     const items = payload.results || [];
     responseCache.set(cacheKey, items);
     renderAiResults(items);
+    setSearchLoading(false);
   }
 
   function renderAiResults(items) {
     results.dataset.provider = 'cloudflare-ai-search';
     if (!items.length && results.innerHTML) return;
+    const previousActiveIndex = activeResultIndex;
     results.innerHTML = items.length
       ? renderResults(items, 'AI Search')
       : '<p class="muted">No results found.</p>';
+    setActiveResult(items.length ? previousActiveIndex : -1);
   }
 
   function localSearch(query) {
@@ -733,12 +787,66 @@ function clientScript(): string {
     ).join('');
   }
 
+  function resultLinks() {
+    return Array.from(results.querySelectorAll('.search-result'));
+  }
+
+  function setSearchLoading(loading) {
+    searchLoading = loading;
+    results.classList.toggle('loading', searchLoading);
+    const existing = results.querySelector('.search-loading');
+
+    if (!searchLoading) {
+      existing?.remove();
+      return;
+    }
+
+    if (!existing) {
+      const loadingNode = document.createElement('div');
+      loadingNode.className = 'search-loading';
+      loadingNode.setAttribute('role', 'status');
+      loadingNode.setAttribute('aria-live', 'polite');
+      loadingNode.innerHTML = '<span></span>Searching...';
+      results.appendChild(loadingNode);
+    }
+  }
+
+  function setActiveResult(index) {
+    const links = resultLinks();
+    activeResultIndex = links.length ? Math.max(-1, Math.min(index, links.length - 1)) : -1;
+    links.forEach((link, linkIndex) => {
+      const active = linkIndex === activeResultIndex;
+      link.classList.toggle('active', active);
+      link.setAttribute('aria-selected', active ? 'true' : 'false');
+      if (active) link.scrollIntoView({ block: 'nearest' });
+    });
+  }
+
+  function moveActiveResult(delta) {
+    const links = resultLinks();
+    if (!links.length) return;
+    const nextIndex = activeResultIndex < 0
+      ? (delta > 0 ? 0 : links.length - 1)
+      : (activeResultIndex + delta + links.length) % links.length;
+    setActiveResult(nextIndex);
+  }
+
+  function openActiveResult() {
+    const links = resultLinks();
+    if (!links.length) return;
+    const selected = links[activeResultIndex >= 0 ? activeResultIndex : 0];
+    if (selected instanceof HTMLAnchorElement) {
+      window.location.href = selected.href;
+    }
+  }
+
   function escapeHtmlClient(value) {
     return String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' })[char]);
   }
 
   openButtons.forEach((button) => button.addEventListener('click', openSearch));
   closeButton.addEventListener('click', closeSearch);
+  themeButton?.addEventListener('click', () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'));
   openChatButton.addEventListener('click', openChat);
   closeChatButton.addEventListener('click', closeChat);
   chatForm.addEventListener('submit', (event) => {
@@ -752,6 +860,28 @@ function clientScript(): string {
     }
   });
   input.addEventListener('input', () => scheduleSearch(input.value));
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      moveActiveResult(1);
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      moveActiveResult(-1);
+    }
+    if (event.key === 'Home' && resultLinks().length) {
+      event.preventDefault();
+      setActiveResult(0);
+    }
+    if (event.key === 'End' && resultLinks().length) {
+      event.preventDefault();
+      setActiveResult(resultLinks().length - 1);
+    }
+    if (event.key === 'Enter' && resultLinks().length) {
+      event.preventDefault();
+      openActiveResult();
+    }
+  });
   document.addEventListener('keydown', (event) => {
     if ((event.key === '/' || ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k')) && document.activeElement !== input) {
       event.preventDefault();
@@ -783,6 +913,16 @@ function css(): string {
   --sidebar-width: 300px;
   --toc-width: 224px;
 }
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0b1120;
+  --surface: #111827;
+  --surface-alt: #1f2937;
+  --text: #e5e7eb;
+  --muted: #9ca3af;
+  --line: #2f3a4a;
+  --code: #020617;
+}
 * { box-sizing: border-box; }
 html { scroll-padding-top: calc(var(--topbar-height) + 24px); }
 body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.7 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
@@ -804,7 +944,9 @@ a { color: inherit; text-decoration: none; }
 .top-link { color: #4b5563; font-size: 14px; font-weight: 500; white-space: nowrap; }
 .top-link:hover { color: var(--primary); }
 .primary-action { height: 34px; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; background: var(--primary); color: white; padding: 0 13px; font-size: 14px; font-weight: 600; white-space: nowrap; box-shadow: 0 1px 2px rgba(17,24,39,.08); }
-.theme-toggle { width: 32px; height: 32px; display: grid; place-items: center; border: 0; background: transparent; color: #9ca3af; font-size: 18px; cursor: pointer; }
+.theme-toggle { width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 8px; background: transparent; color: #6b7280; cursor: pointer; }
+.theme-toggle:hover { border-color: var(--line); background: var(--surface-alt); color: var(--text); }
+.theme-toggle svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .mobile-icons, .mobile-crumb { display: none; }
 .search-trigger { width: 100%; height: 36px; display: flex; align-items: center; justify-content: space-between; border: 1px solid var(--line); border-radius: 10px; background: #f9fafb; color: #6b7280; padding: 0 10px; font: inherit; cursor: pointer; box-shadow: inset 0 1px 0 rgba(255,255,255,.6); }
 .search-trigger:hover { border-color: #d1d5db; background: #fff; }
@@ -891,7 +1033,7 @@ h1 { margin: 0; font-size: 30px; line-height: 1.22; letter-spacing: 0; font-weig
 .toc a { display: block; padding: 4px 0; color: #6b7280; line-height: 1.45; }
 .toc a:hover { color: var(--primary); }
 .toc .depth-3 { padding-left: 12px; }
-.search-panel { position: fixed; inset: 0; background: rgba(13, 28, 24, .35); padding: 10vh 18px 18px; z-index: 10; }
+.search-panel { position: fixed; inset: 0; background: rgba(13, 28, 24, .35); padding: 10vh 18px 18px; z-index: 100; }
 .search-dialog { max-width: 720px; margin: 0 auto; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: 0 24px 70px rgba(13, 28, 24, .22); overflow: hidden; }
 .search-box { display: grid; grid-template-columns: minmax(0, 1fr) 56px; border-bottom: 1px solid var(--line); }
 .search-box input, .search-box button { height: 54px; border: 0; background: transparent; font: inherit; }
@@ -899,11 +1041,15 @@ h1 { margin: 0; font-size: 30px; line-height: 1.22; letter-spacing: 0; font-weig
 .search-box button { color: var(--muted); cursor: pointer; }
 .search-results { max-height: min(520px, 62vh); overflow-y: auto; padding: 8px; }
 .search-provider { padding: 8px 12px 4px; color: #6b7280; font-size: 12px; font-weight: 650; }
-.search-result { display: block; border-radius: 7px; padding: 12px; }
-.search-result:hover { background: var(--surface-alt); }
+.search-result { display: block; border-radius: 7px; padding: 12px; outline: none; }
+.search-result:hover, .search-result.active { background: var(--surface-alt); }
+.search-result.active { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 24%, transparent); }
 .search-result strong, .search-result span { display: block; }
 .search-result span, .muted { color: var(--muted); }
+.search-loading { display: flex; align-items: center; gap: 8px; padding: 10px 12px 12px; color: var(--muted); font-size: 13px; }
+.search-loading span { width: 12px; height: 12px; border: 2px solid color-mix(in srgb, var(--primary) 18%, #d1d5db); border-top-color: var(--primary); border-radius: 50%; animation: spin .7s linear infinite; }
 .muted { padding: 12px; margin: 0; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .chat-launcher { position: fixed; right: 22px; bottom: 22px; z-index: 9; height: 42px; border: 1px solid color-mix(in srgb, var(--primary) 25%, #d1d5db); border-radius: 999px; background: var(--primary); color: white; padding: 0 18px; font: inherit; font-weight: 650; box-shadow: 0 12px 30px rgba(17,24,39,.18); cursor: pointer; }
 .chat-panel { position: fixed; right: 22px; bottom: 76px; z-index: 11; width: min(420px, calc(100vw - 32px)); }
 .chat-dialog { border: 1px solid var(--line); border-radius: 16px; background: white; box-shadow: 0 24px 70px rgba(17,24,39,.22); overflow: hidden; }
@@ -923,6 +1069,44 @@ h1 { margin: 0; font-size: 30px; line-height: 1.22; letter-spacing: 0; font-weig
 .chat-form textarea { min-height: 40px; max-height: 120px; resize: vertical; border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px; font: inherit; outline: none; }
 .chat-form textarea:focus { border-color: color-mix(in srgb, var(--primary) 45%, #d1d5db); }
 .chat-form button { border: 0; border-radius: 10px; background: var(--primary); color: white; padding: 0 14px; font: inherit; font-weight: 650; cursor: pointer; }
+html[data-theme="dark"] .topbar { background: rgba(11, 17, 32, .92); }
+html[data-theme="dark"] .brand,
+html[data-theme="dark"] .top-tabs a:hover,
+html[data-theme="dark"] .top-tabs a.active,
+html[data-theme="dark"] h1,
+html[data-theme="dark"] .content h2,
+html[data-theme="dark"] .content h3,
+html[data-theme="dark"] .toc p,
+html[data-theme="dark"] .mobile-crumb strong,
+html[data-theme="dark"] .mdx-card strong { color: var(--text); }
+html[data-theme="dark"] .top-tabs a,
+html[data-theme="dark"] .top-link,
+html[data-theme="dark"] .sidebar-anchors a,
+html[data-theme="dark"] .sidebar nav a,
+html[data-theme="dark"] .description,
+html[data-theme="dark"] .content,
+html[data-theme="dark"] .toc,
+html[data-theme="dark"] .toc a { color: #cbd5e1; }
+html[data-theme="dark"] .sidebar { background: rgba(11, 17, 32, .98); }
+html[data-theme="dark"] .search-trigger,
+html[data-theme="dark"] .top-search,
+html[data-theme="dark"] kbd,
+html[data-theme="dark"] .sidebar-anchor-icon,
+html[data-theme="dark"] .mdx-card,
+html[data-theme="dark"] .chat-dialog,
+html[data-theme="dark"] .chat-form,
+html[data-theme="dark"] .chat-message.assistant { background: var(--surface); }
+html[data-theme="dark"] .search-trigger:hover,
+html[data-theme="dark"] .sidebar nav a:hover { background: var(--surface-alt); color: var(--text); }
+html[data-theme="dark"] .sidebar nav a.active,
+html[data-theme="dark"] .mdx-callout { background: color-mix(in srgb, var(--primary) 18%, var(--surface)); }
+html[data-theme="dark"] .content code { background: var(--surface-alt); color: var(--text); }
+html[data-theme="dark"] .mdx-card { border-color: var(--line); box-shadow: none; }
+html[data-theme="dark"] .mdx-card div,
+html[data-theme="dark"] .chat-message.assistant { color: #cbd5e1; }
+html[data-theme="dark"] .mdx-steps li::before,
+html[data-theme="dark"] .chat-messages { background: var(--bg); }
+html[data-theme="dark"] .search-panel { background: rgba(0, 0, 0, .52); }
 @media (max-width: 1120px) {
   .topbar-inner { grid-template-columns: minmax(180px, var(--sidebar-width)) minmax(0, 1fr); }
   .top-actions { display: none; }
