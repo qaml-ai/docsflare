@@ -67,6 +67,7 @@ type BuiltAsset = {
 type NavLink = {
   label: string;
   href: string;
+  icon?: string;
 };
 
 const projectRoot = process.cwd();
@@ -900,7 +901,8 @@ function extractGlobalAnchors(navigation: unknown): NavLink[] {
     const record = anchor as Record<string, unknown>;
     const label = firstString(record.anchor, record.label, record.name, record.title);
     const href = firstString(record.href, record.url, record.path);
-    return label && href ? [{ label, href }] : [];
+    const icon = firstString(record.icon);
+    return label && href ? [{ label, href, ...(icon ? { icon } : {}) }] : [];
   });
 }
 

@@ -14,7 +14,7 @@ type GeneratedContent = {
       links?: Array<{ label: string; href: string }>;
       primary?: { label: string; href: string; type?: string };
     };
-    globalAnchors?: Array<{ label: string; href: string }>;
+    globalAnchors?: Array<{ label: string; href: string; icon?: string }>;
     navTabs?: Array<{ label: string; href: string }>;
   };
   nav: Array<{
@@ -540,7 +540,7 @@ function renderSidebarAnchors(): string {
   if (links.length === 0) return "";
 
   return `<div class="sidebar-anchors">
-    ${links.map((link) => `<a href="${escapeHtml(link.href)}"><span class="sidebar-anchor-icon">${iconForLabel(link.label)}</span>${escapeHtml(link.label)}</a>`).join("")}
+    ${links.map((link) => `<a href="${escapeHtml(link.href)}"><span class="sidebar-anchor-icon">${iconForAnchor(link)}</span>${escapeHtml(link.label)}</a>`).join("")}
   </div>`;
 }
 
@@ -559,11 +559,34 @@ function themeFromCookie(cookie: string | null): "dark" | "light" | undefined {
   return theme === "dark" || theme === "light" ? theme : undefined;
 }
 
-function iconForLabel(label: string): string {
+function iconForAnchor(link: { label: string; icon?: string }): string {
+  const icon = link.icon ?? iconNameForLabel(link.label);
+  return iconSvg(icon);
+}
+
+function iconNameForLabel(label: string): string {
   const lower = label.toLowerCase();
-  if (lower.includes("api") || lower.includes("console")) return "&lt;/&gt;";
-  if (lower.includes("legacy")) return "~";
-  return "[]";
+  if (lower.includes("api") || lower.includes("console")) return "code";
+  if (lower.includes("legacy")) return "clock-rotate-left";
+  return "browser";
+}
+
+function iconSvg(icon: string): string {
+  const attrs = 'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
+
+  if (icon === "code") {
+    return `<svg ${attrs}><path d="m16 18 6-6-6-6"></path><path d="m8 6-6 6 6 6"></path></svg>`;
+  }
+
+  if (icon === "clock-rotate-left" || icon === "history") {
+    return `<svg ${attrs}><path d="M3 12a9 9 0 1 0 3-6.7"></path><path d="M3 3v6h6"></path><path d="M12 7v5l3 2"></path></svg>`;
+  }
+
+  if (icon === "external-link") {
+    return `<svg ${attrs}><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>`;
+  }
+
+  return `<svg ${attrs}><rect width="18" height="16" x="3" y="4" rx="2"></rect><path d="M3 9h18"></path><path d="M7 6.5h.01"></path><path d="M10 6.5h.01"></path><path d="M13 6.5h.01"></path></svg>`;
 }
 
 function renderTableOfContents(page: Page): string {
@@ -1230,7 +1253,8 @@ kbd { border-radius: 4px; padding: 0 5px; color: var(--muted); font: 10.5px ui-m
 .sidebar > .search-trigger { display: none; }
 .sidebar-anchors { display: grid; gap: 4px; margin-bottom: 28px; padding-bottom: 22px; border-bottom: 1px solid var(--line); }
 .sidebar-anchors a { display: grid; grid-template-columns: 24px minmax(0, 1fr); align-items: center; gap: 8px; padding: 6px 8px; }
-.sidebar-anchor-icon { color: var(--primary); font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.sidebar-anchor-icon { display: grid; place-items: center; color: var(--primary); }
+.sidebar-anchor-icon svg { width: 16px; height: 16px; }
 .sidebar nav, .sidebar nav section { min-width: 0; max-width: 100%; }
 .sidebar nav section + section { margin-top: 20px; }
 .sidebar nav h2 { margin: 0 0 7px; color: var(--muted); font-size: 12px; line-height: 1.35; font-weight: 700; text-transform: uppercase; }

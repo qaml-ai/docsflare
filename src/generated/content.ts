@@ -28,15 +28,18 @@ export const content = {
     "globalAnchors": [
       {
         "label": "camelAI",
-        "href": "https://camelai.dev"
+        "href": "https://camelai.dev",
+        "icon": "browser"
       },
       {
         "label": "Legacy App",
-        "href": "https://app.camelai.com"
+        "href": "https://app.camelai.com",
+        "icon": "clock-rotate-left"
       },
       {
         "label": "Legacy API Console",
-        "href": "https://console.camelai.com"
+        "href": "https://console.camelai.com",
+        "icon": "code"
       }
     ],
     "navTabs": [
