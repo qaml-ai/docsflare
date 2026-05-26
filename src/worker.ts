@@ -460,10 +460,7 @@ function renderNotFound(status: number): string {
 }
 
 function renderNav(currentPath: string): string {
-  const activeTab = currentTabTitle(currentPath);
-  const groups = activeTab ? docsContent.nav.filter((group) => groupTabTitle(group.title) === activeTab) : docsContent.nav;
-
-  return groups
+  return docsContent.nav
     .map((group) => {
       const groupTitle = groupDisplayTitle(group.title);
       return `<section>

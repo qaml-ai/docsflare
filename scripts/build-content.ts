@@ -118,6 +118,9 @@ function normalizeNavigation(navigation: unknown): NavGroup[] {
     const ownTitle = firstString(record.group, record.tab, record.anchor, record.title, record.name, record.label);
     const title = ownTitle && inheritedTitle && record.group ? `${inheritedTitle} / ${ownTitle}` : ownTitle ?? inheritedTitle;
     const pages = collectPages(record.pages);
+    if (record.openapi) {
+      pages.push(...collectOpenApiPageRefs());
+    }
 
     if (title && pages.length > 0) {
       groups.push({ title, pages });
@@ -155,12 +158,29 @@ function collectPages(value: unknown): PageRef[] {
     }
 
     if (item && typeof item === "object") {
-      const nested = (item as Record<string, unknown>).pages;
+      const record = item as Record<string, unknown>;
+      if (record.openapi) {
+        pages.push(...collectOpenApiPageRefs());
+      }
+      const nested = record.pages;
       pages.push(...collectPages(nested));
     }
   }
 
   return pages;
+}
+
+function collectOpenApiPageRefs(): PageRef[] {
+  return discoverMarkdownFiles()
+    .filter((file) => {
+      const parsed = matter(readFileSync(path.join(root, file), "utf8"));
+      return typeof parsed.data.openapi === "string";
+    })
+    .sort((a, b) => {
+      const directoryCompare = path.dirname(a).localeCompare(path.dirname(b));
+      return directoryCompare || a.localeCompare(b);
+    })
+    .map((file) => ({ path: stripExtension(file) }));
 }
 
 function discoverMarkdownFiles(dir = root): string[] {
@@ -367,6 +387,20 @@ function humanize(value: string): string {
   return stripExtension(path.basename(value)).replace(/[-_]/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+function defaultOpenApiMarkdown(title: string, operation: string): string {
+  const [method = "", endpoint = ""] = operation.split(/\s+/, 2);
+  const methodLabel = method.toUpperCase();
+
+  return `# ${title}
+
+\`\`\`http
+${methodLabel}${endpoint ? ` ${endpoint}` : ""}
+\`\`\`
+
+This endpoint is defined in the OpenAPI reference.
+`;
+}
+
 function stripExtension(value: string): string {
   return value.replace(/\.(mdx|md)$/i, "").replace(/\/index$/i, "");
 }
@@ -501,10 +535,12 @@ async function main() {
     const parsed = matter(raw);
     const route = typeof parsed.data.path === "string" ? parsed.data.path : routeFromPath(sourcePath);
     const title = typeof parsed.data.title === "string" ? parsed.data.title : titleFromMarkdown(parsed.content, sourcePath);
+    const openApiOperation = typeof parsed.data.openapi === "string" ? parsed.data.openapi.trim() : undefined;
     const description = typeof parsed.data.description === "string" ? parsed.data.description : "";
+    const markdown = parsed.content.trim() || (openApiOperation ? defaultOpenApiMarkdown(title, openApiOperation) : "");
     let html: string;
     try {
-      html = await renderMdx(parsed.content, sourcePath);
+      html = await renderMdx(markdown, sourcePath);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to render ${sourcePath}: ${message}`, { cause: error });
@@ -517,7 +553,7 @@ async function main() {
       route,
       sourcePath,
       html,
-      markdown: parsed.content.trim()
+      markdown
     });
   }
 

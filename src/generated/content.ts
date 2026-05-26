@@ -54,7 +54,7 @@ export const content = {
       },
       {
         "label": "API Reference (Legacy)",
-        "href": "#"
+        "href": "/ask_camel/ask-camel"
       }
     ]
   },
@@ -219,6 +219,143 @@ export const content = {
         {
           "title": "Recommendations",
           "route": "/dev_api/custom-themes/recommendations"
+        }
+      ]
+    },
+    {
+      "title": "API Reference (Legacy) / API Reference",
+      "pages": [
+        {
+          "title": "Ask Camel",
+          "route": "/ask_camel/ask-camel"
+        },
+        {
+          "title": "Create Knowledge Base Entry",
+          "route": "/knowledge-base/create-knowledge-base-entry"
+        },
+        {
+          "title": "Delete Knowledge Base Entry",
+          "route": "/knowledge-base/delete-knowledge-base-entry"
+        },
+        {
+          "title": "List Knowledge Base Entries For A Specific Source",
+          "route": "/knowledge-base/list-knowledge-base-entries-for-a-specific-source"
+        },
+        {
+          "title": "List Knowledge Base Entries",
+          "route": "/knowledge-base/list-knowledge-base-entries"
+        },
+        {
+          "title": "Partial Update Knowledge Base Entry",
+          "route": "/knowledge-base/partial-update-knowledge-base-entry"
+        },
+        {
+          "title": "Retrieve Knowledge Base Entry",
+          "route": "/knowledge-base/retrieve-knowledge-base-entry"
+        },
+        {
+          "title": "Update Knowledge Base Entry",
+          "route": "/knowledge-base/update-knowledge-base-entry"
+        },
+        {
+          "title": "Create Reference Query",
+          "route": "/reference-queries/create-reference-query"
+        },
+        {
+          "title": "Delete Reference Query",
+          "route": "/reference-queries/delete-reference-query"
+        },
+        {
+          "title": "List Reference Queries For A Specific Source",
+          "route": "/reference-queries/list-reference-queries-for-a-specific-source"
+        },
+        {
+          "title": "List Reference Queries",
+          "route": "/reference-queries/list-reference-queries"
+        },
+        {
+          "title": "Partial Update Reference Query",
+          "route": "/reference-queries/partial-update-reference-query"
+        },
+        {
+          "title": "Retrieve Reference Query",
+          "route": "/reference-queries/retrieve-reference-query"
+        },
+        {
+          "title": "Update Reference Query",
+          "route": "/reference-queries/update-reference-query"
+        },
+        {
+          "title": "Validate A Reference Query",
+          "route": "/reference-queries/validate-a-reference-query"
+        },
+        {
+          "title": "Add Bigquery Connection",
+          "route": "/sources/add-bigquery-connection"
+        },
+        {
+          "title": "Add Clickhouse Connection",
+          "route": "/sources/add-clickhouse-connection"
+        },
+        {
+          "title": "Add Connection",
+          "route": "/sources/add-connection"
+        },
+        {
+          "title": "Add Mongodb Connection",
+          "route": "/sources/add-mongodb-connection"
+        },
+        {
+          "title": "Add Motherduck Connection",
+          "route": "/sources/add-motherduck-connection"
+        },
+        {
+          "title": "Add Mysql Connection",
+          "route": "/sources/add-mysql-connection"
+        },
+        {
+          "title": "Add Postgresql Connection",
+          "route": "/sources/add-postgresql-connection"
+        },
+        {
+          "title": "Add Singlestore Connection",
+          "route": "/sources/add-singlestore-connection"
+        },
+        {
+          "title": "Add Snowflake Connection",
+          "route": "/sources/add-snowflake-connection"
+        },
+        {
+          "title": "Add Sql Server Connection",
+          "route": "/sources/add-sql-server-connection"
+        },
+        {
+          "title": "Delete Data Source",
+          "route": "/sources/delete-data-source"
+        },
+        {
+          "title": "Get Data Source Details",
+          "route": "/sources/get-data-source-details"
+        },
+        {
+          "title": "List Data Sources",
+          "route": "/sources/list-data-sources"
+        },
+        {
+          "title": "Partial Update Data Source",
+          "route": "/sources/partial-update-data-source"
+        },
+        {
+          "title": "Post Apiv1sources",
+          "route": "/sources/post-apiv1sources"
+        },
+        {
+          "title": "Update Data Source Configuration",
+          "route": "/sources/update-data-source-configuration"
+        },
+        {
+          "title": "Update Data Source",
+          "route": "/sources/update-data-source"
         }
       ]
     }
@@ -447,6 +584,270 @@ export const content = {
       "sourcePath": "dev_api/custom-themes/recommendations.mdx",
       "html": "\u003clink rel=\"preload\" as=\"image\" href=\"https://imagedelivery.net/0Ey8LwpQ4ATeP19F21mqig/2ef487b2-3a2c-4691-8fd7-0893686b6000/public\"/>\u003caside class=\"mdx-callout mdx-callout-warning\">\u003cstrong>Warning\u003c/strong>\u003cdiv>\u003cp>\u003cstrong>camelAI Legacy Product\u003c/strong> — This documentation covers camelAI&#x27;s embedded analytics offering, which is no longer being actively developed. We are migrating existing customers to the new camelAI platform. For the current product, visit \u003ca href=\"https://camelai.dev\">camelAI\u003c/a>.\u003c/p>\u003c/div>\u003c/aside>\n\u003ch2 id=\"start-recommendations\">\u003ca class=\"heading-anchor\" aria-label=\"Link to heading\" href=\"#start-recommendations\">Start Recommendations\u003c/a>\u003c/h2>\n\u003cp>These are the three recommendation options that appear on the start screen when users starts a new chat.\u003c/p>\n\u003cimg src=\"https://imagedelivery.net/0Ey8LwpQ4ATeP19F21mqig/2ef487b2-3a2c-4691-8fd7-0893686b6000/public\" alt=\"Show Analysis and Code\" height=\"200\" class=\"rounded-lg\"/>\n\u003cdiv class=\"mdx-card-group\" data-cols=\"2\" style=\"--cols:2\">\u003cdiv class=\"mdx-card\">\u003cspan class=\"mdx-card-icon\">\u003csvg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\">\u003cpath d=\"M9 18l-6-6 6-6\">\u003c/path>\u003cpath d=\"M15 6l6 6-6 6\">\u003c/path>\u003c/svg>\u003c/span>\u003cstrong>Highlight Common Use Cases\u003c/strong>\u003cdiv>\u003cp>Showcase the most frequently asked questions in your organization\u003c/p>\u003c/div>\u003c/div>\u003cdiv class=\"mdx-card\">\u003cspan class=\"mdx-card-icon\">\u003csvg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\">\u003cpath d=\"M4 18h16\">\u003c/path>\u003cpath d=\"M6 15l4-4 3 3 5-7\">\u003c/path>\u003c/svg>\u003c/span>\u003cstrong>Showcase Specific Metrics\u003c/strong>\u003cdiv>\u003cp>Feature important KPIs and metrics users should explore\u003c/p>\u003c/div>\u003c/div>\u003cdiv class=\"mdx-card\">\u003cspan class=\"mdx-card-icon\">\u003csvg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\">\u003cpath d=\"M9 18l-6-6 6-6\">\u003c/path>\u003cpath d=\"M15 6l6 6-6 6\">\u003c/path>\u003c/svg>\u003c/span>\u003cstrong>Guide Toward Valuable Insights\u003c/strong>\u003cdiv>\u003cp>Direct users to high-impact analysis opportunities\u003c/p>\u003c/div>\u003c/div>\u003cdiv class=\"mdx-card\">\u003cspan class=\"mdx-card-icon\">\u003csvg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\">\u003cpath d=\"M9 18l-6-6 6-6\">\u003c/path>\u003cpath d=\"M15 6l6 6-6 6\">\u003c/path>\u003c/svg>\u003c/span>\u003cstrong>Demonstrate Capabilities\u003c/strong>\u003cdiv>\u003cp>Show the range of questions camelAI can answer\u003c/p>\u003c/div>\u003c/div>\u003c/div>\n\u003ch3 id=\"configuration\">\u003ca class=\"heading-anchor\" aria-label=\"Link to heading\" href=\"#configuration\">Configuration\u003c/a>\u003c/h3>\n\u003col class=\"mdx-steps\">\u003cli>\u003cstrong>Provide Starter Prompts\u003c/strong>\u003cp>Create a list of 1-500 recommended starter prompts\u003c/p>\u003c/li>\u003cli>\u003cstrong>Support Multiple Options\u003c/strong>\u003cp>If you provide more than 3, camelAI will \u003cstrong>randomly select\u003c/strong> which 3 to display\u003c/p>\u003c/li>\u003cli>\u003cstrong>Keep It Conversational\u003c/strong>\u003cp>Recommendations should be conversational and relevant to your data. Keep each recommendation short and sweet.\u003c/p>\u003c/li>\u003c/ol>\n\u003ch2 id=\"in-chat-recommendations\">\u003ca class=\"heading-anchor\" aria-label=\"Link to heading\" href=\"#in-chat-recommendations\">In-Chat Recommendations\u003c/a>\u003c/h2>\n\u003cp>After each interaction, camelAI automatically generates three follow-up suggestions based on:\u003c/p>\n\u003cul>\n\u003cli>The most recent message exchange\u003c/li>\n\u003cli>Your connected data source structure\u003c/li>\n\u003cli>Natural next steps in the analysis\u003c/li>\n\u003c/ul>\n\u003caside class=\"mdx-callout mdx-callout-warning\">\u003cstrong>Warning\u003c/strong>\u003cdiv>\u003cp>In-chat recommendations are currently AI-generated and cannot be customized. They&#x27;re designed to be contextually relevant and encourage deeper data exploration.\u003c/p>\u003c/div>\u003c/aside>",
       "markdown": "\u003cWarning>\n  **camelAI Legacy Product** — This documentation covers camelAI's embedded analytics offering, which is no longer being actively developed. We are migrating existing customers to the new camelAI platform. For the current product, visit [camelAI](https://camelai.dev).\n\u003c/Warning>\n## Start Recommendations\nThese are the three recommendation options that appear on the start screen when users starts a new chat.\n\n\u003cimg \n  src=\"https://imagedelivery.net/0Ey8LwpQ4ATeP19F21mqig/2ef487b2-3a2c-4691-8fd7-0893686b6000/public\" \n  alt=\"Show Analysis and Code\"\n  height=\"200\"\n  className=\"rounded-lg\"\n/>\n\n\u003cCardGroup cols={2}>\n  \u003cCard title=\"Highlight Common Use Cases\" icon=\"star\">\n    Showcase the most frequently asked questions in your organization\n  \u003c/Card>\n  \u003cCard title=\"Showcase Specific Metrics\" icon=\"chart-line\">\n    Feature important KPIs and metrics users should explore\n  \u003c/Card>\n  \u003cCard title=\"Guide Toward Valuable Insights\" icon=\"lightbulb\">\n    Direct users to high-impact analysis opportunities\n  \u003c/Card>\n  \u003cCard title=\"Demonstrate Capabilities\" icon=\"sparkles\">\n    Show the range of questions camelAI can answer\n  \u003c/Card>\n\u003c/CardGroup>\n\n### Configuration\n\n\u003cSteps>\n  \u003cStep title=\"Provide Starter Prompts\">\n    Create a list of 1-500 recommended starter prompts\n  \u003c/Step>\n  \u003cStep title=\"Support Multiple Options\">\n    If you provide more than 3, camelAI will **randomly select** which 3 to display\n  \u003c/Step>\n  \u003cStep title=\"Keep It Conversational\">\n    Recommendations should be conversational and relevant to your data. Keep each recommendation short and sweet.\n  \u003c/Step>\n\u003c/Steps>\n\n## In-Chat Recommendations\n\nAfter each interaction, camelAI automatically generates three follow-up suggestions based on:\n\n- The most recent message exchange\n- Your connected data source structure  \n- Natural next steps in the analysis\n\n\u003cWarning>\nIn-chat recommendations are currently AI-generated and cannot be customized. They're designed to be contextually relevant and encourage deeper data exploration.\n\u003c/Warning>"
+    },
+    {
+      "title": "Ask Camel",
+      "description": "",
+      "route": "/ask_camel/ask-camel",
+      "sourcePath": "ask_camel/ask-camel.mdx",
+      "html": "\u003ch1 id=\"ask-camel\">\u003ca class=\"heading-anchor\" aria-label=\"Link to heading\" href=\"#ask-camel\">Ask Camel\u003c/a>\u003c/h1>\n\u003cpre>\u003ccode class=\"language-http\">POST /api/v1/ask_camel\n\u003c/code>\u003c/pre>\n\u003cp>This endpoint is defined in the OpenAPI reference.\u003c/p>",
+      "markdown": "# Ask Camel\n\n```http\nPOST /api/v1/ask_camel\n```\n\nThis endpoint is defined in the OpenAPI reference.\n"
+    },
+    {
+      "title": "Create Knowledge Base Entry",
+      "description": "",
+      "route": "/knowledge-base/create-knowledge-base-entry",
+      "sourcePath": "knowledge-base/create-knowledge-base-entry.mdx",
+      "html": "\u003ch1 id=\"create-knowledge-base-entry\">\u003ca class=\"heading-anchor\" aria-label=\"Link to heading\" href=\"#create-knowledge-base-entry\">Create Knowledge Base Entry\u003c/a>\u003c/h1>\n\u003cpre>\u003ccode class=\"language-http\">POST /api/v1/knowledge-base/\n\u003c/code>\u003c/pre>\n\u003cp>This endpoint is defined in the OpenAPI reference.\u003c/p>",
+      "markdown": "# Create Knowledge Base Entry\n\n```http\nPOST /api/v1/knowledge-base/\n```\n\nThis endpoint is defined in the OpenAPI reference.\n"
+    },
+    {
+      "title": "Delete Knowledge Base Entry",
+      "description": "",
+      "route": "/knowledge-base/delete-knowledge-base-entry",
+      "sourcePath": "knowledge-base/delete-knowledge-base-entry.mdx",
+      "html": "\u003ch1 id=\"delete-knowledge-base-entry\">\u003ca class=\"heading-anchor\" aria-label=\"Link to heading\" href=\"#delete-knowledge-base-entry\">Delete Knowledge Base Entry\u003c/a>\u003c/h1>\n\u003cpre>\u003ccode class=\"language-http\">DELETE /api/v1/knowledge-base/{id}/\n\u003c/code>\u003c/pre>\n\u003cp>This endpoint is defined in the OpenAPI reference.\u003c/p>",
+      "markdown": "# Delete Knowledge Base Entry\n\n```http\nDELETE /api/v1/knowledge-base/{id}/\n```\n\nThis endpoint is defined in the OpenAPI reference.\n"
+    },
+    {
+      "title": "List Knowledge Base Entries For A Specific Source",
+      "description": "",
+      "route": "/knowledge-base/list-knowledge-base-entries-for-a-specific-source",
+      "sourcePath": "knowledge-base/list-knowledge-base-entries-for-a-specific-source.mdx",
+      "html": "\u003ch1 id=\"list-knowledge-base-entries-for-a-specific-source\">\u003ca class=\"heading-anchor\" aria-label=\"Link to heading\" href=\"#list-knowledge-base-entries-for-a-specific-source\">List Knowledge Base Entries For A Specific Source\u003c/a>\u003c/h1>\n\u003cpre>\u003ccode class=\"language-http\">GET /api/v1/knowledge-base/source/{source_id}/\n\u003c/code>\u003c/pre>\n\u003cp>This endpoint is defined in the OpenAPI reference.\u003c/p>",
+      "markdown": "# List Knowledge Base Entries For A Specific Source\n\n```http\nGET /api/v1/knowledge-base/source/{source_id}/\n```\n\nThis endpoint is defined in the OpenAPI reference.\n"
+    },
+    {
+      "title": "List Knowledge Base Entries",
+      "description": "",
+      "route": "/knowledge-base/list-knowledge-base-entries",
+      "sourcePath": "knowledge-base/list-knowledge-base-entries.mdx",
+      "html": "\u003ch1 id=\"list-knowledge-base-entries\">\u003ca class=\"heading-anchor\" aria-label=\"Link to heading\" href=\"#list-knowledge-base-entries\">List Knowledge Base Entries\u003c/a>\u003c/h1>\n\u003cpre>\u003ccode class=\"language-http\">GET /api/v1/knowledge-base/\n\u003c/code>\u003c/pre>\n\u003cp>This endpoint is defined in the OpenAPI reference.\u003c/p>",
+      "markdown": "# List Knowledge Base Entries\n\n```http\nGET /api/v1/knowledge-base/\n```\n\nThis endpoint is defined in the OpenAPI reference.\n"
+    },
+    {
+      "title": "Partial Update Knowledge Base Entry",
+      "description": "",
+      "route": "/knowledge-base/partial-update-knowledge-base-entry",
+      "sourcePath": "knowledge-base/partial-update-knowledge-base-entry.mdx",
+      "html": "\u003ch1 id=\"partial-update-knowledge-base-entry\">\u003ca class=\"heading-anchor\" aria-label=\"Link to heading\" href=\"#partial-update-knowledge-base-entry\">Partial Update Knowledge Base Entry\u003c/a>\u003c/h1>\n\u003cpre>\u003ccode class=\"language-http\">PATCH /api/v1/knowledge-base/{id}/\n\u003c/code>\u003c/pre>\n\u003cp>This endpoint is defined in the OpenAPI reference.\u003c/p>",
+      "markdown": "# Partial Update Knowledge Base Entry\n\n```http\nPATCH /api/v1/knowledge-base/{id}/\n```\n\nThis endpoint is defined in the OpenAPI reference.\n"
+    },
+    {
+      "title": "Retrieve Knowledge Base Entry",
+      "description": "",
+      "route": "/knowledge-base/retrieve-knowledge-base-entry",
+      "sourcePath": "knowledge-base/retrieve-knowledge-base-entry.mdx",
+      "html": "\u003ch1 id=\"retrieve-knowledge-base-entry\">\u003ca class=\"heading-anchor\" aria-label=\"Link to heading\" href=\"#retrieve-knowledge-base-entry\">Retrieve Knowledge Base Entry\u003c/a>\u003c/h1>\n\u003cpre>\u003ccode class=\"language-http\">GET /api/v1/knowledge-base/{id}/\n\u003c/code>\u003c/pre>\n\u003cp>This endpoint is defined in the OpenAPI reference.\u003c/p>",
+      "markdown": "# Retrieve Knowledge Base Entry\n\n```http\nGET /api/v1/knowledge-base/{id}/\n```\n\nThis endpoint is defined in the OpenAPI reference.\n"
+    },
+    {
+      "title": "Update Knowledge Base Entry",
+      "description": "",
+      "route": "/knowledge-base/update-knowledge-base-entry",
+      "sourcePath": "knowledge-base/update-knowledge-base-entry.mdx",
+      "html": "\u003ch1 id=\"update-knowledge-base-entry\">\u003ca class=\"heading-anchor\" aria-label=\"Link to heading\" href=\"#update-knowledge-base-entry\">Update Knowledge Base Entry\u003c/a>\u003c/h1>\n\u003cpre>\u003ccode class=\"language-http\">PUT /api/v1/knowledge-base/{id}/\n\u003c/code>\u003c/pre>\n\u003cp>This endpoint is defined in the OpenAPI reference.\u003c/p>",
+      "markdown": "# Update Knowledge Base Entry\n\n```http\nPUT /api/v1/knowledge-base/{id}/\n```\n\nThis endpoint is defined in the OpenAPI reference.\n"
+    },
+    {
+      "title": "Create Reference Query",
+      "description": "",
+      "route": "/reference-queries/create-reference-query",
+      "sourcePath": "reference-queries/create-reference-query.mdx",
+      "html": "\u003ch1 id=\"create-reference-query\">\u003ca class=\"heading-anchor\" aria-label=\"Link to heading\" href=\"#create-reference-query\">Create Reference Query\u003c/a>\u003c/h1>\n\u003cpre>\u003ccode class=\"language-http\">POST /api/v1/reference-queries/\n\u003c/code>\u003c/pre>\n\u003cp>This endpoint is defined in the OpenAPI reference.\u003c/p>",
+      "markdown": "# Create Reference Query\n\n```http\nPOST /api/v1/reference-queries/\n```\n\nThis endpoint is defined in the OpenAPI reference.\n"
+    },
+    {
+      "title": "Delete Reference Query",
+      "description": "",
+      "route": "/reference-queries/delete-reference-query",
+      "sourcePath": "reference-queries/delete-reference-query.mdx",
+      "html": "\u003ch1 id=\"delete-reference-query\">\u003ca class=\"heading-anchor\" aria-label=\"Link to heading\" href=\"#delete-reference-query\">Delete Reference Query\u003c/a>\u003c/h1>\n\u003cpre>\u003ccode class=\"language-http\">DELETE /api/v1/reference-queries/{id}/\n\u003c/code>\u003c/pre>\n\u003cp>This endpoint is defined in the OpenAPI reference.\u003c/p>",
+      "markdown": "# Delete Reference Query\n\n```http\nDELETE /api/v1/reference-queries/{id}/\n```\n\nThis endpoint is defined in the OpenAPI reference.\n"
+    },
+    {
+      "title": "List Reference Queries For A Specific Source",
+      "description": "",
+      "route": "/reference-queries/list-reference-queries-for-a-specific-source",
+      "sourcePath": "reference-queries/list-reference-queries-for-a-specific-source.mdx",
+      "html": "\u003ch1 id=\"list-reference-queries-for-a-specific-source\">\u003ca class=\"heading-anchor\" aria-label=\"Link to heading\" href=\"#list-reference-queries-for-a-specific-source\">List Reference Queries For A Specific Source\u003c/a>\u003c/h1>\n\u003cpre>\u003ccode class=\"language-http\">GET /api/v1/reference-queries/source/{source_id}/\n\u003c/code>\u003c/pre>\n\u003cp>This endpoint is defined in the OpenAPI reference.\u003c/p>",
+      "markdown": "# List Reference Queries For A Specific Source\n\n```http\nGET /api/v1/reference-queries/source/{source_id}/\n```\n\nThis endpoint is defined in the OpenAPI reference.\n"
+    },
+    {
+      "title": "List Reference Queries",
+      "description": "",
+      "route": "/reference-queries/list-reference-queries",
+      "sourcePath": "reference-queries/list-reference-queries.mdx",
+      "html": "\u003ch1 id=\"list-reference-queries\">\u003ca class=\"heading-anchor\" aria-label=\"Link to heading\" href=\"#list-reference-queries\">List Reference Queries\u003c/a>\u003c/h1>\n\u003cpre>\u003ccode class=\"language-http\">GET /api/v1/reference-queries/\n\u003c/code>\u003c/pre>\n\u003cp>This endpoint is defined in the OpenAPI reference.\u003c/p>",
+      "markdown": "# List Reference Queries\n\n```http\nGET /api/v1/reference-queries/\n```\n\nThis endpoint is defined in the OpenAPI reference.\n"
+    },
+    {
+      "title": "Partial Update Reference Query",
+      "description": "",
+      "route": "/reference-queries/partial-update-reference-query",
+      "sourcePath": "reference-queries/partial-update-reference-query.mdx",
+      "html": "\u003ch1 id=\"partial-update-reference-query\">\u003ca class=\"heading-anchor\" aria-label=\"Link to heading\" href=\"#partial-update-reference-query\">Partial Update Reference Query\u003c/a>\u003c/h1>\n\u003cpre>\u003ccode class=\"language-http\">PATCH /api/v1/reference-queries/{id}/\n\u003c/code>\u003c/pre>\n\u003cp>This endpoint is defined in the OpenAPI reference.\u003c/p>",
+      "markdown": "# Partial Update Reference Query\n\n```http\nPATCH /api/v1/reference-queries/{id}/\n```\n\nThis endpoint is defined in the OpenAPI reference.\n"
+    },
+    {
+      "title": "Retrieve Reference Query",
+      "description": "",
+      "route": "/reference-queries/retrieve-reference-query",
+      "sourcePath": "reference-queries/retrieve-reference-query.mdx",
+      "html": "\u003ch1 id=\"retrieve-reference-query\">\u003ca class=\"heading-anchor\" aria-label=\"Link to heading\" href=\"#retrieve-reference-query\">Retrieve Reference Query\u003c/a>\u003c/h1>\n\u003cpre>\u003ccode class=\"language-http\">GET /api/v1/reference-queries/{id}/\n\u003c/code>\u003c/pre>\n\u003cp>This endpoint is defined in the OpenAPI reference.\u003c/p>",
+      "markdown": "# Retrieve Reference Query\n\n```http\nGET /api/v1/reference-queries/{id}/\n```\n\nThis endpoint is defined in the OpenAPI reference.\n"
+    },
+    {
+      "title": "Update Reference Query",
+      "description": "",
+      "route": "/reference-queries/update-reference-query",
+      "sourcePath": "reference-queries/update-reference-query.mdx",
+      "html": "\u003ch1 id=\"update-reference-query\">\u003ca class=\"heading-anchor\" aria-label=\"Link to heading\" href=\"#update-reference-query\">Update Reference Query\u003c/a>\u003c/h1>\n\u003cpre>\u003ccode class=\"language-http\">PUT /api/v1/reference-queries/{id}/\n\u003c/code>\u003c/pre>\n\u003cp>This endpoint is defined in the OpenAPI reference.\u003c/p>",
+      "markdown": "# Update Reference Query\n\n```http\nPUT /api/v1/reference-queries/{id}/\n```\n\nThis endpoint is defined in the OpenAPI reference.\n"
+    },
+    {
+      "title": "Validate A Reference Query",
+      "description": "",
+      "route": "/reference-queries/validate-a-reference-query",
+      "sourcePath": "reference-queries/validate-a-reference-query.mdx",
+      "html": "\u003ch1 id=\"validate-a-reference-query\">\u003ca class=\"heading-anchor\" aria-label=\"Link to heading\" href=\"#validate-a-reference-query\">Validate A Reference Query\u003c/a>\u003c/h1>\n\u003cpre>\u003ccode class=\"language-http\">POST /api/v1/reference-queries/{id}/validate/\n\u003c/code>\u003c/pre>\n\u003cp>This endpoint is defined in the OpenAPI reference.\u003c/p>",
+      "markdown": "# Validate A Reference Query\n\n```http\nPOST /api/v1/reference-queries/{id}/validate/\n```\n\nThis endpoint is defined in the OpenAPI reference.\n"
+    },
+    {
+      "title": "Add Bigquery Connection",
+      "description": "",
+      "route": "/sources/add-bigquery-connection",
+      "sourcePath": "sources/add-bigquery-connection.mdx",
+      "html": "\u003ch1 id=\"add-bigquery-connection\">\u003ca class=\"heading-anchor\" aria-label=\"Link to heading\" href=\"#add-bigquery-connection\">Add Bigquery Connection\u003c/a>\u003c/h1>\n\u003cpre>\u003ccode class=\"language-http\">POST /api/v1/sources/add/bigquery/\n\u003c/code>\u003c/pre>\n\u003cp>This endpoint is defined in the OpenAPI reference.\u003c/p>",
+      "markdown": "# Add Bigquery Connection\n\n```http\nPOST /api/v1/sources/add/bigquery/\n```\n\nThis endpoint is defined in the OpenAPI reference.\n"
+    },
+    {
+      "title": "Add Clickhouse Connection",
+      "description": "",
+      "route": "/sources/add-clickhouse-connection",
+      "sourcePath": "sources/add-clickhouse-connection.mdx",
+      "html": "\u003ch1 id=\"add-clickhouse-connection\">\u003ca class=\"heading-anchor\" aria-label=\"Link to heading\" href=\"#add-clickhouse-connection\">Add Clickhouse Connection\u003c/a>\u003c/h1>\n\u003cpre>\u003ccode class=\"language-http\">POST /api/v1/sources/add/clickhouse/\n\u003c/code>\u003c/pre>\n\u003cp>This endpoint is defined in the OpenAPI reference.\u003c/p>",
+      "markdown": "# Add Clickhouse Connection\n\n```http\nPOST /api/v1/sources/add/clickhouse/\n```\n\nThis endpoint is defined in the OpenAPI reference.\n"
+    },
+    {
+      "title": "Add Connection",
+      "description": "",
+      "route": "/sources/add-connection",
+      "sourcePath": "sources/add-connection.mdx",
+      "html": "\u003ch1 id=\"add-connection\">\u003ca class=\"heading-anchor\" aria-label=\"Link to heading\" href=\"#add-connection\">Add Connection\u003c/a>\u003c/h1>\n\u003cpre>\u003ccode class=\"language-http\">POST /api/v1/sources/add/\n\u003c/code>\u003c/pre>\n\u003cp>This endpoint is defined in the OpenAPI reference.\u003c/p>",
+      "markdown": "# Add Connection\n\n```http\nPOST /api/v1/sources/add/\n```\n\nThis endpoint is defined in the OpenAPI reference.\n"
+    },
+    {
+      "title": "Add Mongodb Connection",
+      "description": "",
+      "route": "/sources/add-mongodb-connection",
+      "sourcePath": "sources/add-mongodb-connection.mdx",
+      "html": "\u003ch1 id=\"add-mongodb-connection\">\u003ca class=\"heading-anchor\" aria-label=\"Link to heading\" href=\"#add-mongodb-connection\">Add Mongodb Connection\u003c/a>\u003c/h1>\n\u003cpre>\u003ccode class=\"language-http\">POST /api/v1/sources/add/mongodb/\n\u003c/code>\u003c/pre>\n\u003cp>This endpoint is defined in the OpenAPI reference.\u003c/p>",
+      "markdown": "# Add Mongodb Connection\n\n```http\nPOST /api/v1/sources/add/mongodb/\n```\n\nThis endpoint is defined in the OpenAPI reference.\n"
+    },
+    {
+      "title": "Add Motherduck Connection",
+      "description": "",
+      "route": "/sources/add-motherduck-connection",
+      "sourcePath": "sources/add-motherduck-connection.mdx",
+      "html": "\u003ch1 id=\"add-motherduck-connection\">\u003ca class=\"heading-anchor\" aria-label=\"Link to heading\" href=\"#add-motherduck-connection\">Add Motherduck Connection\u003c/a>\u003c/h1>\n\u003cpre>\u003ccode class=\"language-http\">POST /api/v1/sources/add/motherduck/\n\u003c/code>\u003c/pre>\n\u003cp>This endpoint is defined in the OpenAPI reference.\u003c/p>",
+      "markdown": "# Add Motherduck Connection\n\n```http\nPOST /api/v1/sources/add/motherduck/\n```\n\nThis endpoint is defined in the OpenAPI reference.\n"
+    },
+    {
+      "title": "Add Mysql Connection",
+      "description": "",
+      "route": "/sources/add-mysql-connection",
+      "sourcePath": "sources/add-mysql-connection.mdx",
+      "html": "\u003ch1 id=\"add-mysql-connection\">\u003ca class=\"heading-anchor\" aria-label=\"Link to heading\" href=\"#add-mysql-connection\">Add Mysql Connection\u003c/a>\u003c/h1>\n\u003cpre>\u003ccode class=\"language-http\">POST /api/v1/sources/add/mysql/\n\u003c/code>\u003c/pre>\n\u003cp>This endpoint is defined in the OpenAPI reference.\u003c/p>",
+      "markdown": "# Add Mysql Connection\n\n```http\nPOST /api/v1/sources/add/mysql/\n```\n\nThis endpoint is defined in the OpenAPI reference.\n"
+    },
+    {
+      "title": "Add Postgresql Connection",
+      "description": "",
+      "route": "/sources/add-postgresql-connection",
+      "sourcePath": "sources/add-postgresql-connection.mdx",
+      "html": "\u003ch1 id=\"add-postgresql-connection\">\u003ca class=\"heading-anchor\" aria-label=\"Link to heading\" href=\"#add-postgresql-connection\">Add Postgresql Connection\u003c/a>\u003c/h1>\n\u003cpre>\u003ccode class=\"language-http\">POST /api/v1/sources/add/postgres/\n\u003c/code>\u003c/pre>\n\u003cp>This endpoint is defined in the OpenAPI reference.\u003c/p>",
+      "markdown": "# Add Postgresql Connection\n\n```http\nPOST /api/v1/sources/add/postgres/\n```\n\nThis endpoint is defined in the OpenAPI reference.\n"
+    },
+    {
+      "title": "Add Singlestore Connection",
+      "description": "",
+      "route": "/sources/add-singlestore-connection",
+      "sourcePath": "sources/add-singlestore-connection.mdx",
+      "html": "\u003ch1 id=\"add-singlestore-connection\">\u003ca class=\"heading-anchor\" aria-label=\"Link to heading\" href=\"#add-singlestore-connection\">Add Singlestore Connection\u003c/a>\u003c/h1>\n\u003cpre>\u003ccode class=\"language-http\">POST /api/v1/sources/add/singlestore/\n\u003c/code>\u003c/pre>\n\u003cp>This endpoint is defined in the OpenAPI reference.\u003c/p>",
+      "markdown": "# Add Singlestore Connection\n\n```http\nPOST /api/v1/sources/add/singlestore/\n```\n\nThis endpoint is defined in the OpenAPI reference.\n"
+    },
+    {
+      "title": "Add Snowflake Connection",
+      "description": "",
+      "route": "/sources/add-snowflake-connection",
+      "sourcePath": "sources/add-snowflake-connection.mdx",
+      "html": "\u003ch1 id=\"add-snowflake-connection\">\u003ca class=\"heading-anchor\" aria-label=\"Link to heading\" href=\"#add-snowflake-connection\">Add Snowflake Connection\u003c/a>\u003c/h1>\n\u003cpre>\u003ccode class=\"language-http\">POST /api/v1/sources/add/snowflake/\n\u003c/code>\u003c/pre>\n\u003cp>This endpoint is defined in the OpenAPI reference.\u003c/p>",
+      "markdown": "# Add Snowflake Connection\n\n```http\nPOST /api/v1/sources/add/snowflake/\n```\n\nThis endpoint is defined in the OpenAPI reference.\n"
+    },
+    {
+      "title": "Add Sql Server Connection",
+      "description": "",
+      "route": "/sources/add-sql-server-connection",
+      "sourcePath": "sources/add-sql-server-connection.mdx",
+      "html": "\u003ch1 id=\"add-sql-server-connection\">\u003ca class=\"heading-anchor\" aria-label=\"Link to heading\" href=\"#add-sql-server-connection\">Add Sql Server Connection\u003c/a>\u003c/h1>\n\u003cpre>\u003ccode class=\"language-http\">POST /api/v1/sources/add/mssql/\n\u003c/code>\u003c/pre>\n\u003cp>This endpoint is defined in the OpenAPI reference.\u003c/p>",
+      "markdown": "# Add Sql Server Connection\n\n```http\nPOST /api/v1/sources/add/mssql/\n```\n\nThis endpoint is defined in the OpenAPI reference.\n"
+    },
+    {
+      "title": "Delete Data Source",
+      "description": "",
+      "route": "/sources/delete-data-source",
+      "sourcePath": "sources/delete-data-source.mdx",
+      "html": "\u003ch1 id=\"delete-data-source\">\u003ca class=\"heading-anchor\" aria-label=\"Link to heading\" href=\"#delete-data-source\">Delete Data Source\u003c/a>\u003c/h1>\n\u003cpre>\u003ccode class=\"language-http\">DELETE /api/v1/sources/{id}/\n\u003c/code>\u003c/pre>\n\u003cp>This endpoint is defined in the OpenAPI reference.\u003c/p>",
+      "markdown": "# Delete Data Source\n\n```http\nDELETE /api/v1/sources/{id}/\n```\n\nThis endpoint is defined in the OpenAPI reference.\n"
+    },
+    {
+      "title": "Get Data Source Details",
+      "description": "",
+      "route": "/sources/get-data-source-details",
+      "sourcePath": "sources/get-data-source-details.mdx",
+      "html": "\u003ch1 id=\"get-data-source-details\">\u003ca class=\"heading-anchor\" aria-label=\"Link to heading\" href=\"#get-data-source-details\">Get Data Source Details\u003c/a>\u003c/h1>\n\u003cpre>\u003ccode class=\"language-http\">GET /api/v1/sources/{id}/\n\u003c/code>\u003c/pre>\n\u003cp>This endpoint is defined in the OpenAPI reference.\u003c/p>",
+      "markdown": "# Get Data Source Details\n\n```http\nGET /api/v1/sources/{id}/\n```\n\nThis endpoint is defined in the OpenAPI reference.\n"
+    },
+    {
+      "title": "List Data Sources",
+      "description": "",
+      "route": "/sources/list-data-sources",
+      "sourcePath": "sources/list-data-sources.mdx",
+      "html": "\u003ch1 id=\"list-data-sources\">\u003ca class=\"heading-anchor\" aria-label=\"Link to heading\" href=\"#list-data-sources\">List Data Sources\u003c/a>\u003c/h1>\n\u003cpre>\u003ccode class=\"language-http\">GET /api/v1/sources/\n\u003c/code>\u003c/pre>\n\u003cp>This endpoint is defined in the OpenAPI reference.\u003c/p>",
+      "markdown": "# List Data Sources\n\n```http\nGET /api/v1/sources/\n```\n\nThis endpoint is defined in the OpenAPI reference.\n"
+    },
+    {
+      "title": "Partial Update Data Source",
+      "description": "",
+      "route": "/sources/partial-update-data-source",
+      "sourcePath": "sources/partial-update-data-source.mdx",
+      "html": "\u003ch1 id=\"partial-update-data-source\">\u003ca class=\"heading-anchor\" aria-label=\"Link to heading\" href=\"#partial-update-data-source\">Partial Update Data Source\u003c/a>\u003c/h1>\n\u003cpre>\u003ccode class=\"language-http\">PATCH /api/v1/sources/{id}/\n\u003c/code>\u003c/pre>\n\u003cp>This endpoint is defined in the OpenAPI reference.\u003c/p>",
+      "markdown": "# Partial Update Data Source\n\n```http\nPATCH /api/v1/sources/{id}/\n```\n\nThis endpoint is defined in the OpenAPI reference.\n"
+    },
+    {
+      "title": "Post Apiv1sources",
+      "description": "",
+      "route": "/sources/post-apiv1sources",
+      "sourcePath": "sources/post-apiv1sources.mdx",
+      "html": "\u003ch1 id=\"post-apiv1sources\">\u003ca class=\"heading-anchor\" aria-label=\"Link to heading\" href=\"#post-apiv1sources\">Post Apiv1sources\u003c/a>\u003c/h1>\n\u003cpre>\u003ccode class=\"language-http\">POST /api/v1/sources/\n\u003c/code>\u003c/pre>\n\u003cp>This endpoint is defined in the OpenAPI reference.\u003c/p>",
+      "markdown": "# Post Apiv1sources\n\n```http\nPOST /api/v1/sources/\n```\n\nThis endpoint is defined in the OpenAPI reference.\n"
+    },
+    {
+      "title": "Update Data Source Configuration",
+      "description": "",
+      "route": "/sources/update-data-source-configuration",
+      "sourcePath": "sources/update-data-source-configuration.mdx",
+      "html": "\u003ch1 id=\"update-data-source-configuration\">\u003ca class=\"heading-anchor\" aria-label=\"Link to heading\" href=\"#update-data-source-configuration\">Update Data Source Configuration\u003c/a>\u003c/h1>\n\u003cpre>\u003ccode class=\"language-http\">PATCH /api/v1/sources/{id}/update-config/\n\u003c/code>\u003c/pre>\n\u003cp>This endpoint is defined in the OpenAPI reference.\u003c/p>",
+      "markdown": "# Update Data Source Configuration\n\n```http\nPATCH /api/v1/sources/{id}/update-config/\n```\n\nThis endpoint is defined in the OpenAPI reference.\n"
+    },
+    {
+      "title": "Update Data Source",
+      "description": "",
+      "route": "/sources/update-data-source",
+      "sourcePath": "sources/update-data-source.mdx",
+      "html": "\u003ch1 id=\"update-data-source\">\u003ca class=\"heading-anchor\" aria-label=\"Link to heading\" href=\"#update-data-source\">Update Data Source\u003c/a>\u003c/h1>\n\u003cpre>\u003ccode class=\"language-http\">PUT /api/v1/sources/{id}/\n\u003c/code>\u003c/pre>\n\u003cp>This endpoint is defined in the OpenAPI reference.\u003c/p>",
+      "markdown": "# Update Data Source\n\n```http\nPUT /api/v1/sources/{id}/\n```\n\nThis endpoint is defined in the OpenAPI reference.\n"
     }
   ],
   "assets": [
