@@ -305,6 +305,7 @@ function sourceResultsFromChunks(chunks: AiSearchChunk[]) {
 function renderShell(page: Page | undefined, url: URL, status = 200, initialTheme?: "dark" | "light"): string {
   const title = page ? `${page.title} - ${docsContent.site.name}` : `Not found - ${docsContent.site.name}`;
   const description = page?.description ?? `${docsContent.site.name} documentation`;
+  const seoMeta = renderSeoMeta(page, url, status, title, description);
   const themeAttribute = initialTheme ? ` data-theme="${initialTheme}"` : "";
   const themeStyle = initialTheme ? ` style="background:${initialTheme === "dark" ? "#0d1117" : "#fbfcfd"};color-scheme:${initialTheme}"` : "";
   const currentPath = page?.route ?? url.pathname;
@@ -313,9 +314,10 @@ function renderShell(page: Page | undefined, url: URL, status = 200, initialThem
 <html lang="en"${themeAttribute}${themeStyle}>
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>${escapeHtml(title)}</title>
   <meta name="description" content="${escapeHtml(description)}">
+  ${seoMeta}
   ${docsContent.site.favicon ? `<link rel="icon" href="${escapeHtml(docsContent.site.favicon)}">` : ""}
   <style>
     html { background: #fbfcfd; color-scheme: light; }
@@ -419,6 +421,60 @@ function renderShell(page: Page | undefined, url: URL, status = 200, initialThem
   <script>${clientScript()}</script>
 </body>
 </html>`;
+}
+
+function renderSeoMeta(page: Page | undefined, url: URL, status: number, title: string, description: string): string {
+  const route = page?.route ?? normalizeRoute(url.pathname);
+  const canonicalUrl = absoluteUrl(route, url.origin);
+  const origin = url.origin;
+  const robots = status >= 400 ? "noindex, nofollow" : "index, follow";
+  const primaryColor = docsContent.site.colors.primary ?? "#0f766e";
+  const imageUrl = primaryShareImageUrl(origin);
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    name: title,
+    description,
+    url: canonicalUrl,
+    isPartOf: {
+      "@type": "WebSite",
+      name: docsContent.site.name,
+      url: origin
+    }
+  };
+
+  const imageMeta = imageUrl ? `
+  <meta data-docsflare-managed-meta property="og:image" content="${escapeHtml(imageUrl)}">
+  <meta data-docsflare-managed-meta name="twitter:image" content="${escapeHtml(imageUrl)}">` : "";
+
+  return `<meta data-docsflare-managed-meta name="robots" content="${robots}">
+  <meta data-docsflare-managed-meta name="application-name" content="${escapeHtml(docsContent.site.name)}">
+  <meta data-docsflare-managed-meta name="apple-mobile-web-app-title" content="${escapeHtml(docsContent.site.name)}">
+  <meta data-docsflare-managed-meta name="theme-color" content="${escapeHtml(primaryColor)}">
+  <meta data-docsflare-managed-meta name="format-detection" content="telephone=no">
+  <meta data-docsflare-managed-meta name="canonical" content="${escapeHtml(canonicalUrl)}">
+  <link data-docsflare-managed-meta rel="canonical" href="${escapeHtml(canonicalUrl)}">
+  <link data-docsflare-managed-meta rel="alternate" type="application/xml" title="Sitemap" href="${escapeHtml(absoluteUrl("/sitemap.xml", origin))}">
+  <link data-docsflare-managed-meta rel="alternate" type="text/plain" title="llms.txt" href="${escapeHtml(absoluteUrl("/llms.txt", origin))}">
+  <meta data-docsflare-managed-meta property="og:site_name" content="${escapeHtml(docsContent.site.name)}">
+  <meta data-docsflare-managed-meta property="og:title" content="${escapeHtml(title)}">
+  <meta data-docsflare-managed-meta property="og:description" content="${escapeHtml(description)}">
+  <meta data-docsflare-managed-meta property="og:url" content="${escapeHtml(canonicalUrl)}">
+  <meta data-docsflare-managed-meta property="og:type" content="website">${imageMeta}
+  <meta data-docsflare-managed-meta name="twitter:card" content="summary">
+  <meta data-docsflare-managed-meta name="twitter:title" content="${escapeHtml(title)}">
+  <meta data-docsflare-managed-meta name="twitter:description" content="${escapeHtml(description)}">
+  <script data-docsflare-managed-meta type="application/ld+json">${escapeScriptJson(JSON.stringify(jsonLd))}</script>`;
+}
+
+function primaryShareImageUrl(origin: string): string | undefined {
+  const logo = docsContent.site.logo;
+  const logoPath = typeof logo === "string" ? logo : logo?.light ?? logo?.dark;
+  return logoPath ? absoluteUrl(logoPath, origin) : undefined;
+}
+
+function absoluteUrl(path: string, origin: string): string {
+  return new URL(path, origin).toString();
 }
 
 function renderSearchIndexJson(): string {
@@ -1120,6 +1176,7 @@ function clientScript(): string {
 
     document.title = nextDocument.title;
     document.querySelector('meta[name="description"]')?.setAttribute('content', nextDocument.querySelector('meta[name="description"]')?.getAttribute('content') || '');
+    syncManagedMeta(nextDocument);
     document.querySelector('.main').innerHTML = nextMain.innerHTML;
     document.querySelector('.sidebar').innerHTML = nextSidebar.innerHTML;
     document.querySelector('.top-tabs').innerHTML = nextTabs.innerHTML;
@@ -1136,6 +1193,14 @@ function clientScript(): string {
       window.scrollTo({ top: 0 });
     }
     setupPageTracking();
+  }
+
+  function syncManagedMeta(nextDocument) {
+    document.querySelectorAll('[data-docsflare-managed-meta]').forEach((node) => node.remove());
+    const descriptionMeta = document.querySelector('meta[name="description"]');
+    nextDocument.querySelectorAll('[data-docsflare-managed-meta]').forEach((node) => {
+      document.head.insertBefore(node.cloneNode(true), descriptionMeta?.nextSibling || null);
+    });
   }
 
   function escapeHtmlClient(value) {
@@ -1731,4 +1796,8 @@ function escapeHtml(value: string): string {
         return "&#039;";
     }
   });
+}
+
+function escapeScriptJson(value: string): string {
+  return value.replace(/</g, "\\u003c").replace(/>/g, "\\u003e").replace(/&/g, "\\u0026");
 }
