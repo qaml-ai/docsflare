@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-label="Docsflare">
+  <rect width="48" height="48" rx="10" fill="#0f766e"/>
+  <path d="M14 12h14l6 6v18H14V12z" fill="#ffffff"/>
+  <path d="M28 12v7h7" fill="#ccfbf1"/>
+  <path d="M19 24h12M19 29h12M19 34h8" stroke="#0f766e" stroke-width="2.4" stroke-linecap="round"/>
+</svg>

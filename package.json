@@ -1,0 +1,36 @@
+{
+  "name": "docsflare",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "npm run build:content && tsc --noEmit",
+    "build:content": "tsx scripts/build-content.ts",
+    "build:search-index": "tsx scripts/build-search-index.ts",
+    "dev": "npm run build:content && wrangler dev",
+    "provision:ai-search": "npm run build:content && npm run build:search-index && bash scripts/provision-ai-search.sh",
+    "deploy": "npm run build && wrangler deploy --env production",
+    "test:fixture": "DOCSFLARE_CONTENT_DIR=${DOCSFLARE_FIXTURE_DIR:-$HOME/docs} npm run build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@mdx-js/mdx": "^3.1.1",
+    "@mdx-js/react": "^3.1.1",
+    "gray-matter": "^4.0.3",
+    "hast-util-to-string": "^3.0.1",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "rehype-autolink-headings": "^7.1.0",
+    "rehype-slug": "^6.0.0",
+    "remark-gfm": "^4.0.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260508.0",
+    "@types/node": "^25.8.0",
+    "@types/react": "^19.1.4",
+    "@types/react-dom": "^19.1.5",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3",
+    "wrangler": "^4.16.0"
+  }
+}

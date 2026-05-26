@@ -1,0 +1,23 @@
+{
+  "$schema": "https://docs.mintlify.com/schema.json",
+  "name": "Docsflare",
+  "logo": {
+    "light": "/logo.svg",
+    "dark": "/logo.svg"
+  },
+  "colors": {
+    "primary": "#0f766e",
+    "light": "#14b8a6",
+    "dark": "#134e4a"
+  },
+  "navigation": [
+    {
+      "group": "Getting Started",
+      "pages": ["introduction", "quickstart"]
+    },
+    {
+      "group": "Authoring",
+      "pages": ["mdx-components", "cloudflare-search", "dynamic-workers"]
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+---
+title: Cloudflare AI Search
+description: Configure Docsflare search with Cloudflare AI Search.
+---
+
+# Cloudflare AI Search
+
+Docsflare uses the current Cloudflare AI Search Worker binding. The production `wrangler.jsonc` environment binds an instance named `docsflare-docs` as `DOCS_SEARCH`.
+
+```json
+{
+  "env": {
+    "production": {
+      "ai_search": [
+        {
+          "binding": "DOCS_SEARCH",
+          "instance_name": "docsflare-docs"
+        }
+      ]
+    }
+  }
+}
+```
+
+## Indexing options
+
+For production, run `npm run provision:ai-search`. The script creates a built-in-storage AI Search instance and uploads generated Markdown documents from `.docsflare/search`.
+
+For local development or missing bindings, the Worker falls back to a static in-memory search over built pages. That fallback is intentionally simple and exists only so the UI remains usable before Cloudflare AI Search is configured.

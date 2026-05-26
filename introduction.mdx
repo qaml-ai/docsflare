@@ -1,0 +1,25 @@
+---
+title: Introduction
+description: A Mintlify-compatible documentation site powered by Cloudflare Workers.
+---
+
+# Introduction
+
+Docsflare renders Mintlify-style MDX documentation on Cloudflare Workers. Keep your `docs.json` or `mint.json`, move your `.mdx` files over, and deploy the Worker.
+
+<CardGroup cols={2}>
+  <Card title="MDX-first" href="/mdx-components">
+    Use familiar documentation components like cards, tabs, accordions, and callouts.
+  </Card>
+  <Card title="Edge search" href="/cloudflare-search">
+    Wire the search box to a Cloudflare AI Search instance.
+  </Card>
+</CardGroup>
+
+## What is included
+
+- Static MDX rendering at build time
+- Mintlify-style navigation parsing
+- Worker routing for pages, sitemap, and `llms.txt`
+- Cloudflare AI Search endpoint with local fallback for development
+

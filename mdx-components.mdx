@@ -1,0 +1,45 @@
+---
+title: MDX Components
+description: Supported Mintlify-style MDX components.
+---
+
+# MDX Components
+
+Docsflare supports standard Markdown, GitHub-flavored Markdown, frontmatter, and common Mintlify-style MDX components.
+
+<Info>
+MDX is rendered at build time, so pages are fast and Worker-compatible.
+</Info>
+
+## Cards
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" href="/quickstart">
+    Get the Worker running locally.
+  </Card>
+  <Card title="Search" href="/cloudflare-search">
+    Configure Cloudflare AI Search.
+  </Card>
+</CardGroup>
+
+## Tabs
+
+<Tabs>
+  <Tab title="npm">
+    ```bash
+    npm run dev
+    ```
+  </Tab>
+  <Tab title="deploy">
+    ```bash
+    npm run deploy
+    ```
+  </Tab>
+</Tabs>
+
+## Accordions
+
+<Accordion title="Can I use normal Markdown?">
+Yes. Tables, task lists, fenced code blocks, and frontmatter are supported.
+</Accordion>
+

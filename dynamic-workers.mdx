@@ -1,0 +1,30 @@
+---
+title: Dynamic Workers
+description: How Docsflare can grow from one compiled docs site into a dynamic multi-site docs platform.
+---
+
+# Dynamic Workers
+
+Docsflare currently builds one Worker from a Mintlify-style project. That is the right shape for self-hosting: content is pre-rendered during `npm run build:content`, bundled into the Worker, and searched through one Cloudflare AI Search instance.
+
+Cloudflare Dynamic Workers are a good next step for hosted, multi-site docs. A loader Worker can receive a site ID, read that site's generated Worker code and assets from storage, and run it through a `worker_loaders` binding.
+
+```json
+{
+  "worker_loaders": [
+    {
+      "binding": "LOADER"
+    }
+  ]
+}
+```
+
+The loader shape would be:
+
+1. Store each imported Mintlify project as generated content, assets, and search metadata.
+2. Use `env.LOADER.get(siteVersionId, callback)` to cache a per-site Worker isolate.
+3. Return `WorkerCode` from the callback with the compiled docs Worker module and controlled bindings.
+4. Keep outbound network access disabled for tenant Workers unless a site explicitly needs it.
+5. Serve static assets through a controlled binding backed by R2 or KV.
+
+For the current single-site implementation, Dynamic Workers are intentionally not required. The code path stays simpler, deploys with normal Wrangler commands, and still supports moving an existing Mintlify project over through `DOCSFLARE_CONTENT_DIR`.
