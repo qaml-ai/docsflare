@@ -34,6 +34,30 @@ api() {
     "$@"
 }
 
+api_success() {
+  local method="$1"
+  local path="$2"
+  shift 2
+  local response=""
+  local code=""
+
+  for attempt in 1 2 3 4 5; do
+    response="$(api "$method" "$path" "$@")"
+    if jq -e '.success == true' >/dev/null <<<"$response"; then
+      echo "$response"
+      return 0
+    fi
+
+    code="$(jq -r '.errors[0].code // empty' <<<"$response")"
+    if [[ "$code" != "7017" || "$attempt" == "5" ]]; then
+      echo "$response"
+      return 1
+    fi
+
+    sleep $((attempt * 2))
+  done
+}
+
 INSTANCE_PATH="/accounts/${ACCOUNT_ID}/ai-search/namespaces/${NAMESPACE}/instances/${INSTANCE_NAME}"
 
 existing="$(api GET "$INSTANCE_PATH")"
@@ -41,14 +65,13 @@ if jq -e '.success == true' >/dev/null <<<"$existing"; then
   echo "AI Search instance ${INSTANCE_NAME} already exists."
 else
   echo "Creating AI Search instance ${INSTANCE_NAME} with built-in storage."
-  created="$(api POST "/accounts/${ACCOUNT_ID}/ai-search/namespaces/${NAMESPACE}/instances" \
+  created="$(api_success POST "/accounts/${ACCOUNT_ID}/ai-search/namespaces/${NAMESPACE}/instances" \
     -H "Content-Type: application/json" \
-    --data "{\"id\":\"${INSTANCE_NAME}\",\"index_method\":{\"vector\":true,\"keyword\":true},\"fusion_method\":\"rrf\",\"chunk_size\":512,\"chunk_overlap\":30,\"max_num_results\":8,\"cache\":true}")"
-
-  if ! jq -e '.success == true' >/dev/null <<<"$created"; then
+    --data "{\"id\":\"${INSTANCE_NAME}\",\"index_method\":{\"vector\":true,\"keyword\":true},\"fusion_method\":\"rrf\",\"chunk_size\":512,\"chunk_overlap\":30,\"max_num_results\":8,\"cache\":true}")" || {
     echo "$created" | jq .
     exit 1
-  fi
+  }
+
 fi
 
 if [[ ! -d "$SEARCH_DIR" ]]; then
@@ -56,15 +79,13 @@ if [[ ! -d "$SEARCH_DIR" ]]; then
   exit 1
 fi
 
-items="$(api GET "${INSTANCE_PATH}/items")"
-if jq -e '.success == true' >/dev/null <<<"$items"; then
+if items="$(api_success GET "${INSTANCE_PATH}/items")"; then
   item_ids="$(jq -r '.result[]?.id' <<<"$items")"
   if [[ -n "$item_ids" ]]; then
     while IFS= read -r item_id; do
       [[ -n "$item_id" ]] || continue
       echo "Deleting existing AI Search item ${item_id}"
-      deleted="$(api DELETE "${INSTANCE_PATH}/items/${item_id}")"
-      if ! jq -e '.success == true' >/dev/null <<<"$deleted"; then
+      if ! deleted="$(api_success DELETE "${INSTANCE_PATH}/items/${item_id}")"; then
         echo "$deleted" | jq .
         exit 1
       fi
@@ -79,8 +100,7 @@ uploaded=0
 for file in "$SEARCH_DIR"/*.md; do
   [[ -e "$file" ]] || continue
   echo "Uploading ${file}"
-  response="$(api POST "${INSTANCE_PATH}/items" -F "file=@${file};type=text/markdown")"
-  if ! jq -e '.success == true' >/dev/null <<<"$response"; then
+  if ! response="$(api_success POST "${INSTANCE_PATH}/items" -F "file=@${file};type=text/markdown")"; then
     echo "$response" | jq .
     exit 1
   fi
