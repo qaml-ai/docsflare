@@ -354,7 +354,7 @@ function renderShell(page: Page | undefined, url: URL, status = 200, initialThem
             <path d="M21 14.5A8.5 8.5 0 0 1 9.5 3 7 7 0 1 0 21 14.5z"></path>
           </svg>
         </button>
-        <button class="mobile-menu" type="button" aria-label="Menu"><span></span></button>
+        <button class="mobile-menu" type="button" data-toggle-mobile-nav aria-controls="site-sidebar" aria-expanded="false" aria-label="Menu"><span></span></button>
       </div>
       <div class="top-actions">
         ${renderExternalLinks()}
@@ -374,7 +374,8 @@ function renderShell(page: Page | undefined, url: URL, status = 200, initialThem
     ${renderMobileCrumb(currentPath, page)}
   </header>
   <div class="app">
-    <aside class="sidebar">
+    <div class="mobile-nav-overlay" hidden data-mobile-nav-overlay data-close-mobile-nav></div>
+    <aside class="sidebar" id="site-sidebar">
       <button class="search-trigger" type="button" data-open-search>
         <span>Find docs</span>
         <kbd>/</kbd>
@@ -570,7 +571,7 @@ function renderSidebarAnchors(): string {
 function renderMobileCrumb(currentPath: string, page: Page | undefined): string {
   const section = currentSectionLabel(currentPath) ?? currentTabTitle(currentPath) ?? "Docs";
   return `<div class="mobile-crumb">
-    <span class="mobile-menu-lines"></span>
+    <button class="mobile-crumb-menu" type="button" data-toggle-mobile-nav aria-controls="site-sidebar" aria-expanded="false" aria-label="Menu"><span class="mobile-menu-lines"></span></button>
     <span>${escapeHtml(section)}</span>
     <span class="mobile-separator">/</span>
     <strong>${escapeHtml(page?.title ?? "Not found")}</strong>
@@ -783,6 +784,7 @@ function clientScript(): string {
   setTheme(document.documentElement.dataset.theme || 'light');
 
   function openSearch() {
+    setMobileNav(false);
     panel.hidden = false;
     input.focus();
     if (input.value.trim()) renderLocalResults(input.value);
@@ -804,6 +806,18 @@ function clientScript(): string {
 
   function closeChat() {
     chatPanel.hidden = true;
+  }
+
+  function setMobileNav(open) {
+    document.body.classList.toggle('mobile-nav-open', open);
+    document.querySelector('[data-mobile-nav-overlay]')?.toggleAttribute('hidden', !open);
+    document.querySelectorAll('[data-toggle-mobile-nav]').forEach((button) => {
+      button.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+  }
+
+  function toggleMobileNav() {
+    setMobileNav(!document.body.classList.contains('mobile-nav-open'));
   }
 
   async function submitChat() {
@@ -1114,6 +1128,7 @@ function clientScript(): string {
 
     if (!options.replace) history.pushState(null, '', url.href);
     if (panel && !panel.hidden) closeSearch();
+    setMobileNav(false);
 
     if (url.hash) {
       document.getElementById(decodeURIComponent(url.hash.slice(1)))?.scrollIntoView();
@@ -1176,6 +1191,16 @@ function clientScript(): string {
       });
       return;
     }
+    if (target?.closest('[data-toggle-mobile-nav]')) {
+      event.preventDefault();
+      toggleMobileNav();
+      return;
+    }
+    if (target?.closest('[data-close-mobile-nav]')) {
+      event.preventDefault();
+      setMobileNav(false);
+      return;
+    }
     if (target?.closest('[data-open-search]')) {
       event.preventDefault();
       openSearch();
@@ -1190,6 +1215,7 @@ function clientScript(): string {
     const url = linkForClientNavigation(event);
     if (!url) return;
     event.preventDefault();
+    setMobileNav(false);
     navigateTo(url.href).catch((error) => {
       if (error.name !== 'AbortError') window.location.href = url.href;
     });
@@ -1241,6 +1267,7 @@ function clientScript(): string {
       event.preventDefault();
       openSearch();
     }
+    if (event.key === 'Escape' && document.body.classList.contains('mobile-nav-open')) setMobileNav(false);
     if (event.key === 'Escape' && !panel.hidden) closeSearch();
     if (event.key === 'Escape' && !chatPanel.hidden) closeChat();
   });
@@ -1304,6 +1331,7 @@ html[data-theme="dark"] .brand-logo-dark { display: block; }
 kbd { border-radius: 4px; padding: 0 5px; color: var(--muted); font: 10.5px ui-monospace, SFMono-Regular, Menlo, monospace; }
 
 .app { min-height: calc(100vh - var(--topbar-height)); display: grid; grid-template-columns: var(--sidebar-width) minmax(0, 1fr); }
+.mobile-nav-overlay { display: none; }
 .sidebar { position: sticky; top: var(--topbar-height); height: calc(100vh - var(--topbar-height)); border-right: 1px solid var(--line); padding: 30px 24px 32px 0; overflow-y: auto; overflow-x: hidden; }
 .sidebar > .search-trigger { display: none; }
 .sidebar-anchors { display: grid; gap: 4px; margin-bottom: 28px; padding-bottom: 22px; border-bottom: 1px solid var(--line); }
@@ -1497,6 +1525,8 @@ html[data-theme="dark"] .search-panel { background: rgba(0, 0, 0, .52); }
   .top-actions { display: none; }
   .top-search, .top-tabs { display: none; }
   .mobile-crumb { height: 56px; display: flex; gap: 12px; border-top: 1px solid var(--line); padding: 0 20px; color: var(--muted); font-size: 14px; }
+  .mobile-crumb-menu { display: grid; place-items: center; flex: 0 0 auto; width: 30px; height: 30px; border: 0; border-radius: 6px; background: transparent; color: inherit; padding: 0; }
+  .mobile-crumb-menu:hover { background: var(--surface-alt); color: var(--text); }
   .mobile-crumb strong { color: var(--text); font-weight: 650; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .mobile-menu-lines { position: relative; width: 18px; height: 14px; flex: 0 0 auto; }
   .mobile-menu-lines::before, .mobile-menu-lines::after { content: ""; position: absolute; left: 0; width: 14px; height: 2px; background: var(--muted); border-radius: 2px; }
@@ -1504,6 +1534,10 @@ html[data-theme="dark"] .search-panel { background: rgba(0, 0, 0, .52); }
   .mobile-menu-lines::after { top: 9px; }
   .app { display: block; padding: 0; }
   .sidebar { display: none; }
+  .mobile-nav-open { overflow: hidden; }
+  .mobile-nav-open .mobile-nav-overlay { display: block; position: fixed; inset: var(--topbar-height) 0 0; z-index: 80; background: rgba(15, 23, 42, .34); backdrop-filter: blur(2px); }
+  .mobile-nav-open .sidebar { display: block; position: fixed; z-index: 90; left: 0; top: var(--topbar-height); width: min(84vw, 320px); max-width: 100vw; height: calc(100vh - var(--topbar-height)); border-right: 1px solid var(--line); background: var(--bg); padding: 20px 20px 28px; box-shadow: 18px 0 36px rgba(15, 23, 42, .18); }
+  .sidebar > .search-trigger { display: flex; }
   .main { display: block; padding: 40px 20px 64px; }
   h1 { font-size: 26px; line-height: 1.25; }
   .description { font-size: 17px; }
