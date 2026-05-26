@@ -304,7 +304,12 @@ For a docs repo deployed at `/docs`, use a Wrangler config like:
   "compatibility_date": "2026-03-27",
   "env": {
     "production": {
-      "routes": ["example.com/docs*"],
+      "routes": [
+        {
+          "pattern": "example.com/docs*",
+          "zone_name": "example.com"
+        }
+      ],
       "ai_search": [
         {
           "binding": "DOCS_SEARCH",
