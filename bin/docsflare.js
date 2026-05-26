@@ -10,7 +10,7 @@ const packageJson = JSON.parse(readFileSync(path.join(packageRoot, "package.json
 
 const args = process.argv.slice(2);
 const command = args[0] ?? "help";
-let config = {};
+let projectConfig = {};
 
 main().catch((error) => {
   console.error(error instanceof Error ? error.message : error);
@@ -18,7 +18,7 @@ main().catch((error) => {
 });
 
 async function main() {
-  config = loadConfig(projectRoot);
+  projectConfig = loadConfig(projectRoot);
 
   if (command === "help" || command === "--help" || command === "-h") {
     printHelp();
@@ -46,23 +46,26 @@ async function main() {
   if (command === "build") {
     const options = parseOptions(args.slice(1));
     const contentDir = resolveContentDir(options);
-    await build(contentDir);
+    const config = resolveDeploymentConfig(contentDir);
+    await build(contentDir, options, config);
     return;
   }
 
   if (command === "dev") {
     const options = parseOptions(args.slice(1));
     const contentDir = resolveContentDir(options);
-    await buildContent(contentDir);
-    await runTool("wrangler", ["dev"], { contentDir, inherit: true });
+    const config = resolveDeploymentConfig(contentDir);
+    await buildContent(contentDir, options, config);
+    await runTool("wrangler", wranglerArgsWithConfig(["dev"], options, config), { contentDir, inherit: true, config });
     return;
   }
 
   if (command === "deploy") {
     const options = parseOptions(args.slice(1));
     const contentDir = resolveContentDir(options);
-    await build(contentDir);
-    await runTool("wrangler", ["deploy", "--env", options.env ?? "production"], { contentDir, inherit: true });
+    const config = resolveDeploymentConfig(contentDir);
+    await build(contentDir, options, config);
+    await runTool("wrangler", wranglerArgsWithConfig(["deploy", "--env", options.env ?? "production"], options, config), { contentDir, inherit: true, config });
     return;
   }
 
@@ -74,32 +77,34 @@ async function main() {
 
     const options = parseOptions(args.slice(2));
     const contentDir = resolveContentDir(options);
-    await buildContent(contentDir);
+    const config = resolveDeploymentConfig(contentDir);
+    await buildContent(contentDir, options, config);
     await buildSearchIndex(contentDir);
-    await provisionSearch(contentDir, options);
+    await provisionSearch(contentDir, options, config);
     return;
   }
 
   throw new Error(`Unknown command "${command}". Run "docsflare help" for usage.`);
 }
 
-async function build(contentDir) {
-  await buildContent(contentDir);
-  await runTool("tsc", ["--noEmit"], { contentDir });
+async function build(contentDir, options, config) {
+  await buildContent(contentDir, options, config);
+  await runTool("tsc", ["--noEmit"], { contentDir, config });
 }
 
-async function buildContent(contentDir) {
-  await runTool("tsx", ["scripts/build-content.ts"], { contentDir });
+async function buildContent(contentDir, options = {}, config = resolveDeploymentConfig(contentDir)) {
+  await runTool("tsx", ["scripts/build-content.ts"], { contentDir, config: configWithOptionOverrides(config, options) });
 }
 
 async function buildSearchIndex(contentDir) {
   await runTool("tsx", ["scripts/build-search-index.ts"], { contentDir });
 }
 
-async function provisionSearch(contentDir, options) {
+async function provisionSearch(contentDir, options, config) {
   const extraEnv = {};
-  const instance = options.instance ?? config.search?.instance;
-  const namespace = options.namespace ?? config.search?.namespace;
+  const mergedConfig = configWithOptionOverrides(config, options);
+  const instance = options.instance ?? mergedConfig.search?.instance;
+  const namespace = options.namespace ?? mergedConfig.search?.namespace;
 
   if (instance) extraEnv.AI_SEARCH_INSTANCE = instance;
   if (namespace) extraEnv.AI_SEARCH_NAMESPACE = namespace;
@@ -133,6 +138,11 @@ function parseOptions(rawArgs) {
       continue;
     }
 
+    if (arg === "--base-path") {
+      options.basePath = requireValue(rawArgs, ++index, arg);
+      continue;
+    }
+
     if (arg === "--force") {
       options.force = true;
       continue;
@@ -157,19 +167,81 @@ function requireValue(rawArgs, index, option) {
 }
 
 function resolveContentDir(options) {
-  const requested = options.contentDir ?? options.positional[0] ?? config.contentDir ?? "docs";
-  return path.resolve(projectRoot, requested);
+  const requested = options.contentDir ?? options.positional[0];
+  if (requested) return resolveProjectPath(requested);
+  if (hasDocsConfig(projectRoot)) return projectRoot;
+
+  const nestedDocsDir = path.join(projectRoot, "docs");
+  return hasDocsConfig(nestedDocsDir) ? nestedDocsDir : projectRoot;
 }
 
 function loadConfig(root) {
-  const configPath = path.join(root, "docsflare.config.json");
+  return mergeConfigs(readConfigFile(path.join(root, "docsflare.config.json")), readConfigFile(path.join(root, "docsflare.config.local.json")));
+}
+
+function readConfigFile(configPath) {
   if (!existsSync(configPath)) return {};
 
   try {
     return JSON.parse(readFileSync(configPath, "utf8"));
   } catch (error) {
-    throw new Error(`Could not read docsflare.config.json: ${error instanceof Error ? error.message : error}`);
+    throw new Error(`Could not read ${path.basename(configPath)}: ${error instanceof Error ? error.message : error}`);
   }
+}
+
+function hasDocsConfig(dir) {
+  return existsSync(path.join(dir, "docs.json")) || existsSync(path.join(dir, "mint.json"));
+}
+
+function resolveDeploymentConfig(contentDir) {
+  const contentConfig = contentDir === projectRoot ? {} : loadConfig(contentDir);
+  return mergeConfigs(contentConfig, projectConfig);
+}
+
+function mergeConfigs(base, override) {
+  return {
+    ...base,
+    ...override,
+    search: {
+      ...(base.search ?? {}),
+      ...(override.search ?? {})
+    }
+  };
+}
+
+function resolveProjectPath(value) {
+  if (typeof value === "string" && (value === "~" || value.startsWith("~/"))) {
+    const home = process.env.HOME;
+    if (!home) throw new Error(`Cannot resolve ${value}: HOME is not set.`);
+    return path.resolve(home, value.slice(2));
+  }
+  return path.resolve(projectRoot, value);
+}
+
+function configWithOptionOverrides(config, options) {
+  return {
+    ...config,
+    basePath: options.basePath ?? config.basePath,
+    search: {
+      ...(config.search ?? {}),
+      instance: options.instance ?? config.search?.instance,
+      namespace: options.namespace ?? config.search?.namespace
+    }
+  };
+}
+
+function runtimeBasePathForConfig(config) {
+  return typeof config.basePath === "string" ? config.basePath : undefined;
+}
+
+function extraEnvForConfig(config) {
+  const basePath = runtimeBasePathForConfig(config);
+  return basePath === undefined ? {} : { DOCSFLARE_BASE_PATH: basePath };
+}
+
+function wranglerArgsWithConfig(args, options, config) {
+  const basePath = runtimeBasePathForConfig(configWithOptionOverrides(config, options));
+  return basePath === undefined ? args : [...args, "--var", `DOCSFLARE_BASE_PATH:${basePath || "/"}`];
 }
 
 async function runTool(name, args, options) {
@@ -179,6 +251,7 @@ async function runTool(name, args, options) {
     env: {
       ...process.env,
       DOCSFLARE_CONTENT_DIR: options.contentDir,
+      ...extraEnvForConfig(options.config ?? {}),
       ...(options.extraEnv ?? {})
     }
   });
@@ -423,15 +496,16 @@ Usage:
   docsflare doctor [content-dir]
 
 Options:
-  -c, --content-dir <dir>  Content directory. Defaults to docs.
+  -c, --content-dir <dir>  Content directory. Defaults to the current docs root.
   --env <name>            Wrangler environment for deploy. Defaults to production.
+  --base-path <path>      Optional mounted path, such as /docs.
   --instance <name>       Cloudflare AI Search instance name.
   --namespace <name>      Cloudflare AI Search namespace.
   --force                 Allow init to overwrite starter files.
 
 docsflare.config.json:
   {
-    "contentDir": "docs",
+    "basePath": "/docs",
     "search": {
       "instance": "docsflare-docs",
       "namespace": "default"

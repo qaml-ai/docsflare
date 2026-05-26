@@ -12,6 +12,7 @@ import * as jsxRuntime from "react/jsx-runtime";
 
 type MintConfig = {
   name?: string;
+  basePath?: string;
   logo?: string | { light?: string; dark?: string };
   favicon?: string;
   colors?: {
@@ -1084,6 +1085,7 @@ async function main() {
   const output = {
     site: {
       name: config.name ?? path.basename(root),
+      basePath: firstString(process.env.DOCSFLARE_BASE_PATH, config.basePath),
       logo: config.logo,
       favicon: config.favicon,
       colors: config.colors ?? {},

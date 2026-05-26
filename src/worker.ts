@@ -3,6 +3,7 @@ import { content } from "./generated/content";
 type GeneratedContent = {
   site: {
     name: string;
+    basePath?: string;
     logo?: string | { light?: string; dark?: string };
     favicon?: string;
     colors: {
@@ -72,6 +73,7 @@ type AiSearchBinding = {
 };
 
 type Env = {
+  DOCSFLARE_BASE_PATH?: string;
   DOCS_SEARCH?: AiSearchBinding;
 };
 
@@ -83,12 +85,21 @@ type Asset = GeneratedContent["assets"][number];
 const pages = [...docsContent.pages];
 const pageByRoute = new Map(pages.map((page) => [normalizeRoute(page.route), page]));
 const assetByRoute = new Map((docsContent.assets ?? []).map((asset) => [normalizeRoute(asset.route), asset]));
+const legacyRedirects = new Map([
+  ["/api-reference/ask_camel/ask-camel", "/api-reference/ask-camel/ask-camel"],
+  ["/api-reference/internal_api/post-internal_apichat-recommendations", "/api-reference/internal-api/internal-api-chat-recommendations-create"],
+  ["/api-reference/internal_api/post-internal_apichatrecommendations", "/api-reference/internal-api/internal-api-chat-recommendations-create-2"],
+  ["/api-reference/internal_api/post-internal_apisendmessage", "/api-reference/internal-api/internal-api-sendmessage-create"]
+]);
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+    const configuredBasePath = configuredBasePathForEnv(env);
+    const basePath = basePathForRequest(url.pathname, configuredBasePath);
+    const routePath = stripBasePath(url.pathname, basePath);
     const markdownPath = isMarkdownPath(url.pathname);
-    const route = normalizeRoute(markdownPath ? stripMarkdownExtension(url.pathname) : url.pathname);
+    const route = normalizeRoute(markdownPath ? stripMarkdownExtension(routePath) : routePath);
 
     if (route === "/api/search") {
       return handleSearch(request, env, ctx);
@@ -99,15 +110,15 @@ export default {
     }
 
     if (route === "/sitemap.xml") {
-      return xmlResponse(renderSitemap(url.origin));
+      return xmlResponse(renderSitemap(url.origin, basePath));
     }
 
     if (route === "/llms.txt") {
-      return textResponse(renderLlmsTxt(url.origin), "text/plain; charset=utf-8");
+      return textResponse(renderLlmsTxt(url.origin, basePath), "text/plain; charset=utf-8");
     }
 
     if (route === "/robots.txt") {
-      return textResponse(`User-agent: *\nAllow: /\nSitemap: ${url.origin}/sitemap.xml\n`, "text/plain; charset=utf-8");
+      return textResponse(`User-agent: *\nAllow: /\nSitemap: ${absoluteUrl(routeWithBase("/sitemap.xml", basePath), url.origin)}\n`, "text/plain; charset=utf-8");
     }
 
     const asset = assetByRoute.get(route);
@@ -119,19 +130,24 @@ export default {
     const initialTheme = themeFromCookie(request.headers.get("cookie"));
 
     if (!page) {
-      return htmlResponse(renderShell(undefined, url, 404, initialTheme), 404);
+      const redirectTarget = legacyRedirects.get(route) ?? redirectForMiss(route);
+      if (redirectTarget) {
+        return redirectResponse(absoluteUrl(routeWithBase(redirectTarget, basePath), url.origin));
+      }
+      return htmlResponse(renderShell(undefined, url, 404, initialTheme, basePath), 404);
     }
 
     if (wantsMarkdown(request, markdownPath)) {
-      return markdownResponse(renderPageMarkdown(page, url.origin));
+      return markdownResponse(renderPageMarkdown(page, url.origin, basePath), basePath);
     }
 
-    return htmlResponse(renderShell(page, url, 200, initialTheme), 200);
+    return htmlResponse(renderShell(page, url, 200, initialTheme, basePath), 200);
   }
 };
 
 async function handleSearch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
+  const basePath = basePathForRequest(url.pathname, configuredBasePathForEnv(env));
   let query = url.searchParams.get("q")?.trim() ?? "";
 
   if (request.method === "POST") {
@@ -144,7 +160,7 @@ async function handleSearch(request: Request, env: Env, ctx: ExecutionContext): 
   }
 
   if (env.DOCS_SEARCH?.search) {
-    const cacheKey = new Request(`${url.origin}/api/search?q=${encodeURIComponent(query.toLowerCase())}`);
+    const cacheKey = new Request(`${url.origin}${routeWithBase("/api/search", basePath)}?q=${encodeURIComponent(query.toLowerCase())}`);
     const searchCache = await caches.open("docsflare-search");
 
     if (request.method === "GET") {
@@ -163,7 +179,7 @@ async function handleSearch(request: Request, env: Env, ctx: ExecutionContext): 
         }
       });
 
-      const results = (response.chunks ?? []).map((chunk) => resultFromAiSearchChunk(chunk));
+      const results = prefixResultUrls((response.chunks ?? []).map((chunk) => resultFromAiSearchChunk(chunk)), basePath);
       const payload = jsonResponse(
         { provider: "cloudflare-ai-search", results },
         { "cache-control": "public, max-age=300, s-maxage=300" }
@@ -179,7 +195,7 @@ async function handleSearch(request: Request, env: Env, ctx: ExecutionContext): 
     }
   }
 
-  return jsonResponse({ provider: "static-fallback", results: localSearch(query) });
+  return jsonResponse({ provider: "static-fallback", results: prefixResultUrls(localSearch(query), basePath) });
 }
 
 function resultFromAiSearchChunk(chunk: AiSearchChunk) {
@@ -216,7 +232,14 @@ function localSearch(query: string) {
     }));
 }
 
+function prefixResultUrls<T extends { url: string }>(results: T[], basePath: string): T[] {
+  if (!basePath) return results;
+  return results.map((result) => ({ ...result, url: routeWithBase(result.url, basePath) }));
+}
+
 async function handleChat(request: Request, env: Env): Promise<Response> {
+  const basePath = basePathForRequest(new URL(request.url).pathname, configuredBasePathForEnv(env));
+
   if (request.method !== "POST") {
     return jsonResponse({ error: "Method not allowed" }, { "cache-control": "no-store" }, 405);
   }
@@ -259,14 +282,14 @@ async function handleChat(request: Request, env: Env): Promise<Response> {
       return jsonResponse({
         provider: "cloudflare-ai-search-chat-completions",
         answer: answer || "I could not find an answer in the docs.",
-        sources: sourceResultsFromChunks(response.chunks ?? [])
+        sources: prefixResultUrls(sourceResultsFromChunks(response.chunks ?? []), basePath)
       });
     } catch (error) {
       console.warn("Cloudflare AI Search chat completions failed, falling back to source results", error);
     }
   }
 
-  const sources = localSearch(lastUserMessage).slice(0, 4);
+  const sources = prefixResultUrls(localSearch(lastUserMessage).slice(0, 4), basePath);
   return jsonResponse({
     provider: "static-fallback",
     answer: sources.length
@@ -302,10 +325,10 @@ function sourceResultsFromChunks(chunks: AiSearchChunk[]) {
   }).slice(0, 5);
 }
 
-function renderShell(page: Page | undefined, url: URL, status = 200, initialTheme?: "dark" | "light"): string {
+function renderShell(page: Page | undefined, url: URL, status = 200, initialTheme?: "dark" | "light", basePath = ""): string {
   const title = page ? `${page.title} - ${docsContent.site.name}` : `Not found - ${docsContent.site.name}`;
   const description = page?.description ?? `${docsContent.site.name} documentation`;
-  const seoMeta = renderSeoMeta(page, url, status, title, description);
+  const seoMeta = renderSeoMeta(page, url, status, title, description, basePath);
   const themeAttribute = initialTheme ? ` data-theme="${initialTheme}"` : "";
   const themeStyle = initialTheme ? ` style="background:${initialTheme === "dark" ? "#0d1117" : "#fbfcfd"};color-scheme:${initialTheme}"` : "";
   const currentPath = page?.route ?? url.pathname;
@@ -346,8 +369,8 @@ function renderShell(page: Page | undefined, url: URL, status = 200, initialThem
 <body>
   <header class="topbar">
     <div class="topbar-inner">
-      <a class="brand" href="/">
-        ${renderBrand()}
+      <a class="brand" href="${escapeHtml(routeWithBase("/", basePath))}">
+        ${renderBrand(basePath)}
       </a>
       <div class="mobile-icons">
         <button class="mobile-search" type="button" data-open-search aria-label="Search"></button>
@@ -372,7 +395,7 @@ function renderShell(page: Page | undefined, url: URL, status = 200, initialThem
         <kbd>Cmd K</kbd>
       </button>
     </div>
-    <nav class="top-tabs" aria-label="Documentation sections">${renderTopTabs(currentPath)}</nav>
+    <nav class="top-tabs" aria-label="Documentation sections">${renderTopTabs(currentPath, basePath)}</nav>
     ${renderMobileCrumb(currentPath, page)}
   </header>
   <div class="app">
@@ -382,11 +405,11 @@ function renderShell(page: Page | undefined, url: URL, status = 200, initialThem
         <span>Find docs</span>
         <kbd>/</kbd>
       </button>
-      ${renderSidebarAnchors()}
-      <nav>${renderNav(currentPath)}</nav>
+      ${renderSidebarAnchors(basePath)}
+      <nav>${renderNav(currentPath, basePath)}</nav>
     </aside>
     <main class="main">
-      ${page ? renderArticle(page) : renderNotFound(status)}
+      ${page ? renderArticle(page, basePath) : renderNotFound(status)}
     </main>
   </div>
   <div class="search-panel" hidden data-search-panel>
@@ -417,19 +440,19 @@ function renderShell(page: Page | undefined, url: URL, status = 200, initialThem
       </form>
     </div>
   </div>
-  <script type="application/json" id="docs-search-index">${renderSearchIndexJson()}</script>
-  <script>${clientScript()}</script>
+  <script type="application/json" id="docs-search-index">${renderSearchIndexJson(basePath)}</script>
+  <script>${clientScript(basePath)}</script>
 </body>
 </html>`;
 }
 
-function renderSeoMeta(page: Page | undefined, url: URL, status: number, title: string, description: string): string {
+function renderSeoMeta(page: Page | undefined, url: URL, status: number, title: string, description: string, basePath: string): string {
   const route = page?.route ?? normalizeRoute(url.pathname);
-  const canonicalUrl = absoluteUrl(route, url.origin);
+  const canonicalUrl = absoluteUrl(routeWithBase(route, basePath), url.origin);
   const origin = url.origin;
   const robots = status >= 400 ? "noindex, nofollow" : "index, follow";
   const primaryColor = docsContent.site.colors.primary ?? "#0f766e";
-  const imageUrl = primaryShareImageUrl(origin);
+  const imageUrl = primaryShareImageUrl(origin, basePath);
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "WebPage",
@@ -454,8 +477,8 @@ function renderSeoMeta(page: Page | undefined, url: URL, status: number, title: 
   <meta data-docsflare-managed-meta name="format-detection" content="telephone=no">
   <meta data-docsflare-managed-meta name="canonical" content="${escapeHtml(canonicalUrl)}">
   <link data-docsflare-managed-meta rel="canonical" href="${escapeHtml(canonicalUrl)}">
-  <link data-docsflare-managed-meta rel="alternate" type="application/xml" title="Sitemap" href="${escapeHtml(absoluteUrl("/sitemap.xml", origin))}">
-  <link data-docsflare-managed-meta rel="alternate" type="text/plain" title="llms.txt" href="${escapeHtml(absoluteUrl("/llms.txt", origin))}">
+  <link data-docsflare-managed-meta rel="alternate" type="application/xml" title="Sitemap" href="${escapeHtml(absoluteUrl(routeWithBase("/sitemap.xml", basePath), origin))}">
+  <link data-docsflare-managed-meta rel="alternate" type="text/plain" title="llms.txt" href="${escapeHtml(absoluteUrl(routeWithBase("/llms.txt", basePath), origin))}">
   <meta data-docsflare-managed-meta property="og:site_name" content="${escapeHtml(docsContent.site.name)}">
   <meta data-docsflare-managed-meta property="og:title" content="${escapeHtml(title)}">
   <meta data-docsflare-managed-meta property="og:description" content="${escapeHtml(description)}">
@@ -467,50 +490,50 @@ function renderSeoMeta(page: Page | undefined, url: URL, status: number, title: 
   <script data-docsflare-managed-meta type="application/ld+json">${escapeScriptJson(JSON.stringify(jsonLd))}</script>`;
 }
 
-function primaryShareImageUrl(origin: string): string | undefined {
+function primaryShareImageUrl(origin: string, basePath: string): string | undefined {
   const logo = docsContent.site.logo;
   const logoPath = typeof logo === "string" ? logo : logo?.light ?? logo?.dark;
-  return logoPath ? absoluteUrl(logoPath, origin) : undefined;
+  return logoPath ? absoluteUrl(routeWithBase(logoPath, basePath), origin) : undefined;
 }
 
 function absoluteUrl(path: string, origin: string): string {
   return new URL(path, origin).toString();
 }
 
-function renderSearchIndexJson(): string {
+function renderSearchIndexJson(basePath = ""): string {
   return JSON.stringify(
     pages.map((page) => ({
       title: page.title,
-      url: page.route,
+      url: routeWithBase(page.route, basePath),
       description: page.description,
       text: excerpt(stripMdx(page.markdown), 1800)
     }))
   ).replace(/</g, "\\u003c");
 }
 
-function renderBrand(): string {
+function renderBrand(basePath = ""): string {
   const logo = docsContent.site.logo;
   const logoPath = typeof logo === "string" ? logo : undefined;
 
   if (logoPath) {
-    return `<img class="brand-logo" src="${escapeHtml(logoPath)}" alt="${escapeHtml(docsContent.site.name)}">`;
+    return `<img class="brand-logo" src="${escapeHtml(routeWithBase(logoPath, basePath))}" alt="${escapeHtml(docsContent.site.name)}">`;
   }
 
   if (typeof logo === "object" && (logo.light || logo.dark)) {
     if (logo.light && logo.dark && logo.light !== logo.dark) {
-      return `<img class="brand-logo brand-logo-light" src="${escapeHtml(logo.light)}" alt="${escapeHtml(docsContent.site.name)}"><img class="brand-logo brand-logo-dark" src="${escapeHtml(logo.dark)}" alt="${escapeHtml(docsContent.site.name)}">`;
+      return `<img class="brand-logo brand-logo-light" src="${escapeHtml(routeWithBase(logo.light, basePath))}" alt="${escapeHtml(docsContent.site.name)}"><img class="brand-logo brand-logo-dark" src="${escapeHtml(routeWithBase(logo.dark, basePath))}" alt="${escapeHtml(docsContent.site.name)}">`;
     }
 
     const singleLogoPath = logo.light ?? logo.dark;
     if (singleLogoPath) {
-      return `<img class="brand-logo" src="${escapeHtml(singleLogoPath)}" alt="${escapeHtml(docsContent.site.name)}">`;
+      return `<img class="brand-logo" src="${escapeHtml(routeWithBase(singleLogoPath, basePath))}" alt="${escapeHtml(docsContent.site.name)}">`;
     }
   }
 
   return `<span class="brand-mark">${escapeHtml(docsContent.site.name.slice(0, 1))}</span><span>${escapeHtml(docsContent.site.name)}</span>`;
 }
 
-function renderArticle(page: Page): string {
+function renderArticle(page: Page, basePath = ""): string {
   const isApiPage = page.sourcePath.startsWith("openapi:");
   const pageIndex = pages.findIndex((candidate) => candidate.route === page.route);
   const previous = pages[pageIndex - 1];
@@ -523,10 +546,10 @@ function renderArticle(page: Page): string {
       <h1>${escapeHtml(page.title)}</h1>
       ${page.description ? `<p class="description">${escapeHtml(page.description)}</p>` : ""}
     </header>`}
-    <div class="content">${isApiPage ? page.html : stripLeadingH1(page.html)}</div>
+    <div class="content">${prefixInternalHtmlLinks(isApiPage ? page.html : stripLeadingH1(page.html), basePath)}</div>
     <footer class="pager">
-      ${previous ? `<a href="${previous.route}"><span>Previous</span>${escapeHtml(previous.title)}</a>` : "<span></span>"}
-      ${next ? `<a href="${next.route}"><span>Next</span>${escapeHtml(next.title)}</a>` : ""}
+      ${previous ? `<a href="${routeWithBase(previous.route, basePath)}"><span>Previous</span>${escapeHtml(previous.title)}</a>` : "<span></span>"}
+      ${next ? `<a href="${routeWithBase(next.route, basePath)}"><span>Next</span>${escapeHtml(next.title)}</a>` : ""}
     </footer>
   </article>
   ${renderTableOfContents(page)}`;
@@ -542,7 +565,7 @@ function renderNotFound(status: number): string {
   </article>`;
 }
 
-function renderNav(currentPath: string): string {
+function renderNav(currentPath: string, basePath = ""): string {
   const groups = navGroupsForPath(currentPath);
   const currentRoute = normalizeRoute(currentPath);
 
@@ -553,7 +576,7 @@ function renderNav(currentPath: string): string {
       const apiReferenceGroup = groupTabTitle(group.title).toLowerCase().includes("api reference");
       const showPages = !apiReferenceGroup || activeGroup;
       const heading = apiReferenceGroup && group.pages[0]
-        ? `<a href="${escapeHtml(group.pages[0].route)}">${escapeHtml(groupTitle)}</a>`
+        ? `<a href="${escapeHtml(routeWithBase(group.pages[0].route, basePath))}">${escapeHtml(groupTitle)}</a>`
         : escapeHtml(groupTitle);
 
       return `<section class="${apiReferenceGroup ? "api-nav-section" : ""}">
@@ -561,7 +584,7 @@ function renderNav(currentPath: string): string {
         ${showPages ? group.pages
           .map((page) => {
             const active = currentRoute === normalizeRoute(page.route) ? "active" : "";
-            return renderNavLink(page, active);
+            return renderNavLink(page, active, basePath);
           })
           .join("") : ""}
       </section>`;
@@ -569,14 +592,14 @@ function renderNav(currentPath: string): string {
     .join("");
 }
 
-function renderNavLink(page: { title: string; route: string }, active: string): string {
+function renderNavLink(page: { title: string; route: string }, active: string, basePath = ""): string {
   const operation = apiOperationTitle(page.title);
   if (!operation) {
-    return `<a class="${active}" href="${page.route}">${escapeHtml(page.title)}</a>`;
+    return `<a class="${active}" href="${routeWithBase(page.route, basePath)}">${escapeHtml(page.title)}</a>`;
   }
 
   const method = operation.method.toLowerCase();
-  return `<a class="${active} api-operation-link" href="${page.route}">
+  return `<a class="${active} api-operation-link" href="${routeWithBase(page.route, basePath)}">
     <span class="api-nav-method api-method-${method}">${escapeHtml(operation.method)}</span>
     <span>${escapeHtml(operation.title)}</span>
   </a>`;
@@ -593,7 +616,7 @@ function navGroupsForPath(currentPath: string): GeneratedContent["nav"] {
   return scopedGroups.length > 0 ? scopedGroups : docsContent.nav;
 }
 
-function renderTopTabs(currentPath: string): string {
+function renderTopTabs(currentPath: string, basePath = ""): string {
   const inferredTabs = [...new Set(docsContent.nav.map((group) => groupTabTitle(group.title)))].map((label) => {
     const firstPage = docsContent.nav.find((group) => groupTabTitle(group.title) === label)?.pages[0];
     return { label, href: firstPage?.route ?? "#" };
@@ -604,7 +627,7 @@ function renderTopTabs(currentPath: string): string {
   return tabs
     .map((tab) => {
       const active = activeTab === tab.label ? "active" : "";
-      return `<a class="${active}" href="${escapeHtml(tab.href)}">${escapeHtml(tab.label)}</a>`;
+      return `<a class="${active}" href="${escapeHtml(routeWithBase(tab.href, basePath))}">${escapeHtml(tab.label)}</a>`;
     })
     .join("");
 }
@@ -615,12 +638,12 @@ function renderExternalLinks(): string {
   return links.map((link) => `<a class="top-link" href="${escapeHtml(link.href)}">${escapeHtml(link.label)}</a>`).join("");
 }
 
-function renderSidebarAnchors(): string {
+function renderSidebarAnchors(basePath = ""): string {
   const links = docsContent.site.globalAnchors ?? [];
   if (links.length === 0) return "";
 
   return `<div class="sidebar-anchors">
-    ${links.map((link) => `<a href="${escapeHtml(link.href)}"><span class="sidebar-anchor-icon">${iconForAnchor(link)}</span>${escapeHtml(link.label)}</a>`).join("")}
+    ${links.map((link) => `<a href="${escapeHtml(routeWithBase(link.href, basePath))}"><span class="sidebar-anchor-icon">${iconForAnchor(link)}</span>${escapeHtml(link.label)}</a>`).join("")}
   </div>`;
 }
 
@@ -741,55 +764,56 @@ function decodeHtmlEntities(value: string): string {
   });
 }
 
-function renderLegacyNav(currentPath: string): string {
+function renderLegacyNav(currentPath: string, basePath = ""): string {
   return docsContent.nav
     .map((group) => `<section>
       <h2>${escapeHtml(group.title)}</h2>
       ${group.pages
         .map((page) => {
           const active = normalizeRoute(currentPath) === normalizeRoute(page.route) ? "active" : "";
-          return renderNavLink(page, active);
+          return renderNavLink(page, active, basePath);
         })
         .join("")}
     </section>`)
     .join("");
 }
 
-function renderSitemap(origin: string): string {
+function renderSitemap(origin: string, basePath = ""): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${pages.map((page) => `  <url><loc>${escapeHtml(origin + page.route)}</loc></url>`).join("\n")}
+${pages.map((page) => `  <url><loc>${escapeHtml(absoluteUrl(routeWithBase(page.route, basePath), origin))}</loc></url>`).join("\n")}
 </urlset>`;
 }
 
-function renderLlmsTxt(origin: string): string {
+function renderLlmsTxt(origin: string, basePath = ""): string {
   return `# ${docsContent.site.name}
 
 ${pages
   .map((page) => `## ${page.title}
 
-URL: ${origin}${page.route}
+URL: ${absoluteUrl(routeWithBase(page.route, basePath), origin)}
 Source: ${page.sourcePath}
 Description: ${page.description}
 
-${page.markdown}`)
+${prefixInternalMarkdownLinks(page.markdown, basePath)}`)
   .join("\n\n")}
 `;
 }
 
-function renderPageMarkdown(page: Page, origin: string): string {
+function renderPageMarkdown(page: Page, origin: string, basePath = ""): string {
   const sections = [
-    `> ## Documentation Index\n> Fetch the complete documentation index at: ${origin}/llms.txt\n> Use this file to discover all available pages before exploring further.`,
+    `> ## Documentation Index\n> Fetch the complete documentation index at: ${absoluteUrl(routeWithBase("/llms.txt", basePath), origin)}\n> Use this file to discover all available pages before exploring further.`,
     `# ${page.title}`,
     page.description ? `> ${page.description}` : "",
-    page.markdown
+    prefixInternalMarkdownLinks(page.markdown, basePath)
   ];
 
   return `${sections.filter(Boolean).join("\n\n").trim()}\n`;
 }
 
-function clientScript(): string {
+function clientScript(basePath = ""): string {
   return `(() => {
+  const basePath = ${JSON.stringify(basePath)};
   const panel = document.querySelector('[data-search-panel]');
   const input = document.querySelector('[data-search-input]');
   const results = document.querySelector('[data-search-results]');
@@ -813,6 +837,19 @@ function clientScript(): string {
   let trackedHeadings = [];
   let trackedTocLinks = [];
   let scrollSpyFrame;
+
+  function withBasePath(path) {
+    if (!basePath || !path.startsWith('/')) return path;
+    if (path === basePath || path.startsWith(basePath + '/')) return path;
+    return basePath + path;
+  }
+
+  function pathWithoutBase(path) {
+    if (!basePath) return path;
+    if (path === basePath) return '/';
+    if (path.startsWith(basePath + '/')) return path.slice(basePath.length) || '/';
+    return path;
+  }
 
   const themeIcons = {
     light: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 14.5A8.5 8.5 0 0 1 9.5 3 7 7 0 1 0 21 14.5z"></path></svg>',
@@ -886,7 +923,7 @@ function clientScript(): string {
     const loading = appendChatMessage('assistant', 'Thinking...');
 
     try {
-      const response = await fetch('/api/chat', {
+      const response = await fetch(withBasePath('/api/chat'), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ messages: chatHistory.slice(-8) })
@@ -955,7 +992,7 @@ function clientScript(): string {
     }
 
     controller = new AbortController();
-    const response = await fetch('/api/search?q=' + encodeURIComponent(query), { signal: controller.signal });
+    const response = await fetch(withBasePath('/api/search') + '?q=' + encodeURIComponent(query), { signal: controller.signal });
     const payload = await response.json();
     const items = payload.results || [];
     responseCache.set(cacheKey, items);
@@ -1148,7 +1185,8 @@ function clientScript(): string {
 
     const url = new URL(link.href, window.location.href);
     if (url.origin !== window.location.origin) return;
-    if (url.pathname.startsWith('/api/') || url.pathname === '/sitemap.xml' || url.pathname === '/robots.txt' || url.pathname === '/llms.txt') return;
+    const routePath = pathWithoutBase(url.pathname);
+    if (routePath.startsWith('/api/') || routePath === '/sitemap.xml' || routePath === '/robots.txt' || routePath === '/llms.txt') return;
     if (url.pathname === window.location.pathname && url.hash) return;
     return url;
   }
@@ -1674,20 +1712,30 @@ function textResponse(text: string, contentType: string): Response {
   });
 }
 
-function markdownResponse(markdown: string): Response {
+function markdownResponse(markdown: string, basePath = ""): Response {
   return new Response(markdown, {
     headers: {
       "content-type": "text/markdown; charset=utf-8",
       "content-disposition": "inline",
-      "link": "</llms.txt>; rel=\"llms-txt\"",
+      "link": `<${routeWithBase("/llms.txt", basePath)}>; rel="llms-txt"`,
       "vary": "accept",
-      "x-llms-txt": "/llms.txt"
+      "x-llms-txt": routeWithBase("/llms.txt", basePath)
     }
   });
 }
 
 function xmlResponse(xml: string): Response {
   return textResponse(xml, "application/xml; charset=utf-8");
+}
+
+function redirectResponse(location: string, status = 301): Response {
+  return new Response(null, {
+    status,
+    headers: {
+      location,
+      "cache-control": "public, max-age=3600"
+    }
+  });
 }
 
 function assetResponse(asset: Asset): Response {
@@ -1752,6 +1800,67 @@ function stripMarkdownExtension(pathname: string): string {
 function normalizeRoute(pathname: string): string {
   const route = pathname.replace(/\/+$/, "") || "/";
   return route === "/index" ? "/" : route;
+}
+
+function configuredBasePathForEnv(env: Env): string {
+  if (typeof env.DOCSFLARE_BASE_PATH === "string") {
+    return normalizeBasePath(env.DOCSFLARE_BASE_PATH);
+  }
+  return normalizeBasePath(docsContent.site.basePath ?? "");
+}
+
+function normalizeBasePath(basePath: string): string {
+  const trimmed = basePath.trim();
+  if (!trimmed || trimmed === "/") return "";
+  return normalizeRoute(trimmed.startsWith("/") ? trimmed : `/${trimmed}`);
+}
+
+function basePathForRequest(pathname: string, configuredBasePath: string): string {
+  if (!configuredBasePath) return "";
+  return pathname === configuredBasePath || pathname.startsWith(`${configuredBasePath}/`) ? configuredBasePath : "";
+}
+
+function stripBasePath(pathname: string, basePath: string): string {
+  if (!basePath) return pathname;
+  if (pathname === basePath) return "/";
+  return pathname.startsWith(`${basePath}/`) ? pathname.slice(basePath.length) : pathname;
+}
+
+function routeWithBase(path: string, basePath: string): string {
+  if (!basePath || !path.startsWith("/")) return path;
+  if (path === basePath || path.startsWith(`${basePath}/`)) return path;
+  return `${basePath}${path === "/" ? "" : path}`;
+}
+
+function redirectForMiss(route: string): string | undefined {
+  const normalized = normalizeRoute(route);
+  const hyphenated = normalized.replaceAll("_", "-");
+  if (pageByRoute.has(hyphenated)) return hyphenated;
+
+  const lastSegment = normalized.split("/").filter(Boolean).at(-1);
+  const matchingPage = lastSegment
+    ? pages.find((page) => normalizeRoute(page.route).split("/").at(-1) === lastSegment)
+    : undefined;
+
+  return matchingPage?.route;
+}
+
+function prefixInternalHtmlLinks(html: string, basePath: string): string {
+  if (!basePath) return html;
+  return html.replace(/\s(href|src)="(\/(?!\/)[^"#?]*)([^"]*)"/g, (match, attribute: string, path: string, suffix: string) => {
+    if (path === basePath || path.startsWith(`${basePath}/`)) return match;
+    return ` ${attribute}="${routeWithBase(path, basePath)}${suffix}"`;
+  });
+}
+
+function prefixInternalMarkdownLinks(markdown: string, basePath: string): string {
+  if (!basePath) return markdown;
+  return markdown
+    .replace(/\]\((\/(?!\/)[^)#?]*)([^)]*)\)/g, (_match, path: string, suffix: string) => `](${routeWithBase(path, basePath)}${suffix})`)
+    .replace(/\s(href|src)="(\/(?!\/)[^"#?]*)([^"]*)"/g, (match, attribute: string, path: string, suffix: string) => {
+      if (path === basePath || path.startsWith(`${basePath}/`)) return match;
+      return ` ${attribute}="${routeWithBase(path, basePath)}${suffix}"`;
+    });
 }
 
 function sourceKeyToRoute(key: string): string {

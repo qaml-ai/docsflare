@@ -76,7 +76,7 @@ docsflare search sync [content-dir] [--instance name] [--namespace name]
 docsflare doctor [content-dir]
 ```
 
-The content directory defaults to `docs`.
+By default, Docsflare uses the current directory when it contains `docs.json` or `mint.json`. If the current directory is an app repo with a `docs/` subdirectory, it uses `docs/`. You can also pass a content directory explicitly.
 
 You can pass it positionally:
 
@@ -87,7 +87,8 @@ docsflare dev ./docs
 Or with a flag:
 
 ```bash
-docsflare dev --content-dir ./docs
+cd docs
+docsflare dev
 ```
 
 ## Project Layout
@@ -146,11 +147,11 @@ Custom React imports from an existing Mintlify project may need to be rewritten 
 
 ## Optional Config
 
-You can add `docsflare.config.json` to avoid repeating paths or search settings:
+You can add `docsflare.config.json` in the current project or in the content directory to avoid repeating deployment settings. For machine-local deployment settings, use ignored `docsflare.config.local.json`; it has the same shape and overrides `docsflare.config.json`.
 
 ```json
 {
-  "contentDir": "docs",
+  "basePath": "/docs",
   "search": {
     "instance": "docsflare-docs",
     "namespace": "default"
@@ -159,6 +160,8 @@ You can add `docsflare.config.json` to avoid repeating paths or search settings:
 ```
 
 CLI flags override config values.
+
+`basePath` is optional. When set, Docsflare serves the same docs from both `/` and that mounted path, and generated links, canonical URLs, sitemap URLs, markdown output, search, and chat use the mounted path for requests under it. This is useful when replacing an existing docs site at a path like `/docs`.
 
 ## Writing Docs
 
@@ -258,6 +261,16 @@ Build and deploy to the production Wrangler environment:
 ```bash
 docsflare deploy docs
 ```
+
+By default, Docsflare serves pages from `/`. To mount the same docs at another path for a deployment, set `basePath` in `docsflare.config.json`:
+
+```json
+{
+  "basePath": "/docs"
+}
+```
+
+You can also pass `--base-path /docs` to `build`, `dev`, `deploy`, or `search sync`. `DOCSFLARE_BASE_PATH` remains available as a runtime override for custom Worker deployments.
 
 If you changed docs content and use Cloudflare AI Search, run `docsflare search sync docs` before or after deployment so the hosted search index matches the deployed pages.
 

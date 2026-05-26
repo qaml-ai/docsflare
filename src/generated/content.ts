@@ -2,6 +2,7 @@
 export const content = {
   "site": {
     "name": "camelAI Documentation",
+    "basePath": "/docs",
     "logo": {
       "light": "/logo/light.png",
       "dark": "/logo/dark.png"

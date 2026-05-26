@@ -1,4 +1,5 @@
 node_modules/
 .wrangler/
 .docsflare/
+docsflare.config.local.json
 npm-debug.log*
