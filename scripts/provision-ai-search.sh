@@ -43,13 +43,13 @@ api_success() {
 
   for attempt in 1 2 3 4 5; do
     response="$(api "$method" "$path" "$@")"
-    if jq -e '.success == true' >/dev/null <<<"$response"; then
+    if jq -e '.success == true' >/dev/null 2>&1 <<<"$response"; then
       echo "$response"
       return 0
     fi
 
-    code="$(jq -r '.errors[0].code // empty' <<<"$response")"
-    if [[ "$code" != "7017" || "$attempt" == "5" ]]; then
+    code="$(jq -r '.errors[0].code // empty' 2>/dev/null <<<"$response" || true)"
+    if [[ "$attempt" == "5" || ( -n "$code" && "$code" != "7017" ) ]]; then
       echo "$response"
       return 1
     fi
