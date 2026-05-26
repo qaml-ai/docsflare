@@ -504,12 +504,30 @@ function renderNav(currentPath: string): string {
         ${showPages ? group.pages
           .map((page) => {
             const active = currentRoute === normalizeRoute(page.route) ? "active" : "";
-            return `<a class="${active}" href="${page.route}">${escapeHtml(page.title)}</a>`;
+            return renderNavLink(page, active);
           })
           .join("") : ""}
       </section>`;
     })
     .join("");
+}
+
+function renderNavLink(page: { title: string; route: string }, active: string): string {
+  const operation = apiOperationTitle(page.title);
+  if (!operation) {
+    return `<a class="${active}" href="${page.route}">${escapeHtml(page.title)}</a>`;
+  }
+
+  const method = operation.method.toLowerCase();
+  return `<a class="${active} api-operation-link" href="${page.route}">
+    <span class="api-nav-method api-method-${method}">${escapeHtml(operation.method)}</span>
+    <span>${escapeHtml(operation.title)}</span>
+  </a>`;
+}
+
+function apiOperationTitle(title: string): { method: string; title: string } | undefined {
+  const match = title.match(/^(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\s+(.+)$/);
+  return match ? { method: match[1], title: match[2] } : undefined;
 }
 
 function navGroupsForPath(currentPath: string): GeneratedContent["nav"] {
@@ -673,7 +691,7 @@ function renderLegacyNav(currentPath: string): string {
       ${group.pages
         .map((page) => {
           const active = normalizeRoute(currentPath) === normalizeRoute(page.route) ? "active" : "";
-          return `<a class="${active}" href="${page.route}">${escapeHtml(page.title)}</a>`;
+          return renderNavLink(page, active);
         })
         .join("")}
     </section>`)
@@ -1299,6 +1317,8 @@ kbd { border-radius: 4px; padding: 0 5px; color: var(--muted); font: 10.5px ui-m
 .sidebar nav h2 a:hover { color: var(--text); }
 .sidebar nav .api-nav-section h2 { text-transform: none; font-size: 13px; }
 .sidebar nav a { display: block; max-width: 100%; border-left: 2px solid transparent; color: var(--muted); font-size: 13.5px; line-height: 1.45; padding: 6px 10px; overflow-wrap: anywhere; }
+.sidebar nav a.api-operation-link { display: grid; grid-template-columns: 54px minmax(0, 1fr); align-items: baseline; column-gap: 8px; }
+.api-nav-method { border-radius: 5px; padding: 3px 5px; color: white; text-align: center; white-space: nowrap; font: 700 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .sidebar nav a:hover { border-left-color: var(--line); color: var(--text); }
 .sidebar nav a.active { border-left-color: var(--primary); color: var(--text); font-weight: 680; }
 
