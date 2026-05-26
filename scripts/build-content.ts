@@ -148,9 +148,9 @@ function operationsFromSpec(source: string, spec: Record<string, unknown>): Open
 
   for (const [operationPath, pathItem] of Object.entries(paths)) {
     const pathRecord = recordFromUnknown(pathItem);
-    for (const method of ["get", "post", "put", "patch", "delete", "options", "head"]) {
+    for (const method of ["get", "post", "put", "patch", "delete"]) {
       const operation = recordFromUnknown(pathRecord[method]);
-      if (!operation) continue;
+      if (Object.keys(operation).length === 0) continue;
       const tag = firstString(arrayFromUnknown(operation.tags)[0]) ?? firstPathSegment(operationPath);
       const title = firstString(operation.summary, operation.operationId) ?? humanize(operationPath);
 
@@ -160,7 +160,7 @@ function operationsFromSpec(source: string, spec: Record<string, unknown>): Open
         method,
         path: operationPath,
         tag,
-        route: `/api-reference/${slugify(tag)}/${slugify(title)}`,
+        route: "",
         title,
         navTitle: `${method.toUpperCase()} ${title}`,
         description: firstString(operation.description) ?? "",
@@ -169,7 +169,53 @@ function operationsFromSpec(source: string, spec: Record<string, unknown>): Open
     }
   }
 
+  assignOpenApiRoutes(operations);
   return operations.sort((a, b) => a.tag.localeCompare(b.tag) || methodOrder(a.method) - methodOrder(b.method) || a.route.localeCompare(b.route));
+}
+
+function assignOpenApiRoutes(operations: OpenApiOperation[]): void {
+  const operationsByBaseRoute = new Map<string, OpenApiOperation[]>();
+
+  for (const operation of operations) {
+    const baseRoute = openApiBaseRoute(operation);
+    operationsByBaseRoute.set(baseRoute, [...operationsByBaseRoute.get(baseRoute) ?? [], operation]);
+  }
+
+  const usedRoutes = new Set<string>();
+  for (const [baseRoute, groupedOperations] of operationsByBaseRoute) {
+    groupedOperations.forEach((operation, index) => {
+      const candidate = index === 0 ? baseRoute : openApiMethodRoute(operation);
+      operation.route = uniqueOpenApiRoute(candidate, operation, usedRoutes);
+    });
+  }
+}
+
+function openApiBaseRoute(operation: OpenApiOperation): string {
+  return `/api-reference/${slugify(operation.tag)}/${slugify(operation.title)}`;
+}
+
+function openApiMethodRoute(operation: OpenApiOperation): string {
+  return `/api-reference/${slugify(operation.tag)}/${slugify(`${operation.method} ${operation.title}`)}`;
+}
+
+function uniqueOpenApiRoute(candidate: string, operation: OpenApiOperation, usedRoutes: Set<string>): string {
+  if (!usedRoutes.has(candidate)) {
+    usedRoutes.add(candidate);
+    return candidate;
+  }
+
+  const pathSuffix = slugify(`${operation.method} ${operation.path}`);
+  const withPath = `${candidate}-${pathSuffix}`;
+  if (!usedRoutes.has(withPath)) {
+    usedRoutes.add(withPath);
+    return withPath;
+  }
+
+  let counter = 2;
+  while (usedRoutes.has(`${withPath}-${counter}`)) counter += 1;
+  const uniqueRoute = `${withPath}-${counter}`;
+  usedRoutes.add(uniqueRoute);
+  return uniqueRoute;
 }
 
 function recordFromUnknown(value: unknown): Record<string, unknown> {
@@ -189,7 +235,7 @@ function firstPathSegment(value: string): string {
 }
 
 function methodOrder(method: string): number {
-  return ["get", "post", "put", "patch", "delete", "options", "head"].indexOf(method);
+  return ["get", "post", "put", "patch", "delete"].indexOf(method);
 }
 
 function pageRefFromUnknown(value: unknown): PageRef | undefined {
@@ -231,7 +277,7 @@ function normalizeNavigation(navigation: unknown, openApiOperations: Map<string,
     const title = ownTitle && inheritedTitle && record.group ? `${inheritedTitle} / ${ownTitle}` : ownTitle ?? inheritedTitle;
     const pages = collectPages(record.pages, openApiOperations);
     if (record.openapi) {
-      pages.push(...collectOpenApiPageRefs(record.openapi, openApiOperations));
+      groups.push(...collectOpenApiGroups(record.openapi, inheritedTitle ?? title, openApiOperations));
     }
 
     if (title && pages.length > 0) {
@@ -288,6 +334,24 @@ function collectOpenApiPageRefs(source: unknown, openApiOperations: Map<string, 
   return operations.map((operation) => ({
     title: operation.navTitle,
     path: operation.route.replace(/^\//, "")
+  }));
+}
+
+function collectOpenApiGroups(source: unknown, inheritedTitle: string | undefined, openApiOperations: Map<string, OpenApiOperation[]>): NavGroup[] {
+  const sourceKey = typeof source === "string" ? source : undefined;
+  const operations = sourceKey ? openApiOperations.get(sourceKey) ?? [] : [];
+  const operationsByTag = new Map<string, OpenApiOperation[]>();
+
+  for (const operation of operations) {
+    operationsByTag.set(operation.tag, [...operationsByTag.get(operation.tag) ?? [], operation]);
+  }
+
+  return [...operationsByTag.entries()].map(([tag, tagOperations]) => ({
+    title: inheritedTitle ? `${inheritedTitle} / ${tag}` : tag,
+    pages: tagOperations.map((operation) => ({
+      title: operation.navTitle,
+      path: operation.route.replace(/^\//, "")
+    }))
   }));
 }
 
@@ -538,6 +602,7 @@ function defaultOpenApiMarkdown(openApi: OpenApiOperation): string {
     <div class="api-route-row">
       <span class="api-method api-method-${openApi.method}">${methodLabel}</span>
       <code>${escapeHtml(openApi.path)}</code>
+      <button class="copy-button" type="button" data-copy-value="${escapeHtml(openApi.path)}" aria-label="Copy API path">Copy</button>
     </div>
     ${parameters}
     ${requestBody}
@@ -545,11 +610,11 @@ function defaultOpenApiMarkdown(openApi: OpenApiOperation): string {
   </div>
   <aside class="api-example-panel">
     <div class="api-example-block">
-      <div class="api-example-heading">cURL</div>
-      <pre><code>${escapeHtml(curl)}</code></pre>
+      <div class="api-example-heading"><span>cURL</span><button class="copy-button copy-button-dark" type="button" data-copy-code aria-label="Copy cURL example">Copy</button></div>
+      <pre><code data-api-curl-code data-api-curl-method="${methodLabel}" data-api-curl-path="${escapeHtml(openApi.path)}">${escapeHtml(curl)}</code></pre>
     </div>
     <div class="api-example-block">
-      <div class="api-example-heading">200</div>
+      <div class="api-example-heading"><span>200</span><button class="copy-button copy-button-dark" type="button" data-copy-code aria-label="Copy response example">Copy</button></div>
       <pre><code>${escapeHtml(responseExample)}</code></pre>
     </div>
   </aside>
@@ -630,15 +695,25 @@ function renderSchemaFields(schema: Record<string, unknown>, spec: Record<string
   if (variants.length > 0 && depth < 2) {
     const discriminator = recordFromUnknown(resolved.discriminator);
     const discriminatorProperty = firstString(discriminator.propertyName);
+    const labels = variants.map((variant, index) => schemaVariantLabel(variant, index));
 
-    return `${discriminatorProperty ? `<p class="api-schema-note">One of these shapes, selected by <code>${escapeHtml(discriminatorProperty)}</code>.</p>` : ""}
+    return `<div class="api-polymorphic" data-api-polymorphic>
+  ${discriminatorProperty ? `<p class="api-schema-note">One of these shapes, selected by <code>${escapeHtml(discriminatorProperty)}</code>.</p>` : ""}
+  <label class="api-variant-menu">
+    <span>Request shape</span>
+    <select data-api-variant-select>
+      ${labels.map((label, index) => `<option value="${index}">${escapeHtml(label)}</option>`).join("")}
+    </select>
+  </label>
 ${variants.map((variant, index) => {
   const variantSchema = resolveSchema(variant, spec);
-  return `<div class="api-variant">
-    <h3>${escapeHtml(schemaVariantLabel(variant, index))}</h3>
+  const variantBody = JSON.stringify(sampleFromSchema(variantSchema, spec), null, 2);
+  return `<div class="api-variant" data-api-variant-panel="${index}" data-api-variant-body="${escapeHtml(variantBody)}"${index === 0 ? "" : " hidden"}>
+    <h3>${escapeHtml(labels[index])}</h3>
     ${renderSchemaFields(variantSchema, spec, depth + 1)}
   </div>`;
-}).join("")}`;
+}).join("")}
+</div>`;
   }
 
   const combinedSchema = mergeAllOfSchemas(resolved, spec);
@@ -688,17 +763,30 @@ function mergeAllOfSchemas(schema: Record<string, unknown>, spec: Record<string,
   }, { type: "object" });
 }
 
-function renderCurlExample(openApi: OpenApiOperation): string {
+function renderCurlExample(openApi: OpenApiOperation, bodyExample = renderRequestBodyExample(openApi)): string {
   const method = openApi.method.toUpperCase();
-  const body = recordFromUnknown(openApi.operation.requestBody);
-  const hasBody = Object.keys(body).length > 0;
+  const hasBody = bodyExample.length > 0;
   return [
     `curl --request ${method} \\`,
     `  --url https://api.camelai.com${openApi.path} \\`,
     "  --header 'Authorization: Bearer <token>'" + (hasBody ? " \\" : ""),
     hasBody ? "  --header 'Content-Type: application/json' \\" : "",
-    hasBody ? "  --data '{}'" : ""
+    hasBody ? `  --data ${shellSingleQuote(bodyExample)}` : ""
   ].filter(Boolean).join("\n");
+}
+
+function shellSingleQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function renderRequestBodyExample(openApi: OpenApiOperation): string {
+  const requestBody = recordFromUnknown(openApi.operation.requestBody);
+  const content = recordFromUnknown(requestBody.content);
+  const json = recordFromUnknown(content["application/json"]);
+  const schema = resolveSchema(json.schema, openApi.spec);
+  if (Object.keys(schema).length === 0) return "";
+
+  return JSON.stringify(sampleFromSchema(schema, openApi.spec), null, 2);
 }
 
 function renderResponseExample(openApi: OpenApiOperation): string {
@@ -718,31 +806,61 @@ function resolveSchema(value: unknown, spec: Record<string, unknown>): Record<st
   return ref.slice(2).split("/").reduce<unknown>((current, segment) => recordFromUnknown(current)[segment], spec) as Record<string, unknown>;
 }
 
-function sampleFromSchema(schema: Record<string, unknown>, spec: Record<string, unknown>, depth = 0): unknown {
+function sampleFromSchema(schema: Record<string, unknown>, spec: Record<string, unknown>, depth = 0, hint = ""): unknown {
   const resolved = resolveSchema(schema, spec);
   if (depth > 4) return "<unknown>";
   if (resolved.example !== undefined) return resolved.example;
   if (resolved.default !== undefined) return resolved.default;
   if (Array.isArray(resolved.enum)) return resolved.enum[0];
   const variant = arrayFromUnknown(resolved.oneOf)[0] ?? arrayFromUnknown(resolved.anyOf)[0];
-  if (variant) return sampleFromSchema(recordFromUnknown(variant), spec, depth + 1);
-  if (arrayFromUnknown(resolved.allOf).length > 0) return sampleFromSchema(mergeAllOfSchemas(resolved, spec), spec, depth + 1);
+  if (variant) return sampleFromSchema(recordFromUnknown(variant), spec, depth + 1, hint);
+  if (arrayFromUnknown(resolved.allOf).length > 0) return sampleFromSchema(mergeAllOfSchemas(resolved, spec), spec, depth + 1, hint);
 
   if (resolved.type === "array") {
-    return [sampleFromSchema(recordFromUnknown(resolved.items), spec, depth + 1)];
+    return [sampleFromSchema(recordFromUnknown(resolved.items), spec, depth + 1, hint)];
   }
 
   if (resolved.type === "object" || resolved.properties) {
     const properties = recordFromUnknown(resolved.properties);
-    return Object.fromEntries(Object.entries(properties).slice(0, 12).map(([name, property]) => [name, sampleFromSchema(recordFromUnknown(property), spec, depth + 1)]));
+    return Object.fromEntries(Object.entries(properties).slice(0, 12).map(([name, property]) => [name, sampleFromSchema(recordFromUnknown(property), spec, depth + 1, name)]));
   }
 
+  if (Array.isArray(resolved.const) && resolved.const.length > 0) return resolved.const[0];
+  if (resolved.const !== undefined) return resolved.const;
   if (resolved.format === "date-time") return "2023-11-07T05:31:56Z";
+  if (resolved.format === "date") return "2023-11-07";
   if (resolved.format === "uuid") return "123e4567-e89b-12d3-a456-426614174000";
   if (resolved.type === "integer" || resolved.type === "number") return 123;
   if (resolved.type === "boolean") return true;
-  if (resolved.type === "string") return "<string>";
+  if (resolved.type === "string") return sampleStringForSchema(resolved, hint);
+  if (hint.toLowerCase().includes("recommendations")) return ["What changed in revenue last month?"];
   return "<unknown>";
+}
+
+function sampleStringForSchema(schema: Record<string, unknown>, hint = ""): string {
+  const rawDescription = firstString(schema.description) ?? "";
+  const title = firstString(schema.title)?.toLowerCase() ?? "";
+  const description = rawDescription.toLowerCase();
+  const combined = `${hint.toLowerCase()} ${title} ${description}`;
+  const requiredLiteral = rawDescription.match(/must be [`'"]?([a-z0-9_-]+)[`'"]?/i)?.[1];
+  if (requiredLiteral) return requiredLiteral;
+
+  if (combined.includes("email")) return "user@example.com";
+  if (combined.includes("url") || schema.format === "uri") return "https://example.com";
+  if (combined.includes("password")) return "secure-password";
+  if (combined.includes("connection_string")) return "postgresql://db_user:secure-password@db.example.com:5432/analytics";
+  if (combined.includes("schema")) return "public";
+  if (combined.includes("color")) return "#2563eb";
+  if (combined.includes("start_message")) return "Ask a question about your data";
+  if (combined.includes("hostname") || combined.includes("host")) return "db.example.com";
+  if (combined.includes("username") || combined.includes("user")) return "db_user";
+  if (combined.includes("database")) return "analytics";
+  if (combined.includes("account")) return "production";
+  if (combined.includes("name")) return "Production";
+  if (combined.includes("query")) return "SELECT * FROM orders LIMIT 10";
+  if (combined.includes("title")) return "Monthly revenue";
+  if (combined.includes("key")) return "key_123";
+  return "<string>";
 }
 
 function schemaTypeLabel(schema: Record<string, unknown>): string {

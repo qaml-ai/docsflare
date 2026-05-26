@@ -482,18 +482,26 @@ function renderNotFound(status: number): string {
 
 function renderNav(currentPath: string): string {
   const groups = navGroupsForPath(currentPath);
+  const currentRoute = normalizeRoute(currentPath);
 
   return groups
     .map((group) => {
       const groupTitle = groupDisplayTitle(group.title);
-      return `<section>
-        <h2>${escapeHtml(groupTitle)}</h2>
-        ${group.pages
+      const activeGroup = group.pages.some((page) => normalizeRoute(page.route) === currentRoute);
+      const apiReferenceGroup = groupTabTitle(group.title).toLowerCase().includes("api reference");
+      const showPages = !apiReferenceGroup || activeGroup;
+      const heading = apiReferenceGroup && group.pages[0]
+        ? `<a href="${escapeHtml(group.pages[0].route)}">${escapeHtml(groupTitle)}</a>`
+        : escapeHtml(groupTitle);
+
+      return `<section class="${apiReferenceGroup ? "api-nav-section" : ""}">
+        <h2>${heading}</h2>
+        ${showPages ? group.pages
           .map((page) => {
-            const active = normalizeRoute(currentPath) === normalizeRoute(page.route) ? "active" : "";
+            const active = currentRoute === normalizeRoute(page.route) ? "active" : "";
             return `<a class="${active}" href="${page.route}">${escapeHtml(page.title)}</a>`;
           })
-          .join("")}
+          .join("") : ""}
       </section>`;
     })
     .join("");
@@ -897,6 +905,8 @@ function clientScript(): string {
   }
 
   function setupPageTracking() {
+    setupApiVariantMenus();
+
     const sidebar = document.querySelector('.sidebar');
     const activeSidebarLink = document.querySelector('.sidebar nav a.active');
     if (sidebar && activeSidebarLink) {
@@ -910,6 +920,47 @@ function clientScript(): string {
     trackedHeadings = Array.from(document.querySelectorAll('.content h2[id], .content h3[id]'));
     trackedTocLinks = Array.from(document.querySelectorAll('.toc a[href^="#"]'));
     syncActiveSection();
+  }
+
+  function setupApiVariantMenus() {
+    document.querySelectorAll('[data-api-polymorphic]').forEach((group) => {
+      const select = group.querySelector('[data-api-variant-select]');
+      if (select) syncApiVariantMenu(select);
+    });
+  }
+
+  function syncApiVariantMenu(select) {
+    const group = select.closest('[data-api-polymorphic]');
+    if (!group) return;
+    const selected = select.value || '0';
+    let selectedPanel;
+    group.querySelectorAll('[data-api-variant-panel]').forEach((panel) => {
+      const active = panel.getAttribute('data-api-variant-panel') === selected;
+      panel.hidden = !active;
+      if (active) selectedPanel = panel;
+    });
+
+    const body = selectedPanel?.getAttribute('data-api-variant-body');
+    const page = group.closest('.api-reference-page');
+    const curlCode = page?.querySelector('[data-api-curl-code]');
+    if (body && curlCode) {
+      curlCode.textContent = renderApiCurl(curlCode.dataset.apiCurlMethod, curlCode.dataset.apiCurlPath, body);
+    }
+  }
+
+  function renderApiCurl(method, path, body) {
+    const hasBody = body && body.length > 0;
+    return [
+      'curl --request ' + (method || 'GET') + ' \\\\',
+      '  --url https://api.camelai.com' + (path || '') + ' \\\\',
+      "  --header 'Authorization: Bearer <token>'" + (hasBody ? ' \\\\' : ''),
+      hasBody ? "  --header 'Content-Type: application/json' \\\\" : '',
+      hasBody ? '  --data ' + shellSingleQuote(body) : ''
+    ].filter(Boolean).join('\\n');
+  }
+
+  function shellSingleQuote(value) {
+    return "'" + String(value).replace(/'/g, "'\\\\''") + "'";
   }
 
   function requestSectionSync() {
@@ -998,11 +1049,55 @@ function clientScript(): string {
     return String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' })[char]);
   }
 
+  async function handleCopy(button) {
+    const value = button.hasAttribute('data-copy-code')
+      ? button.closest('.api-example-block')?.querySelector('code')?.textContent
+      : button.getAttribute('data-copy-value');
+    if (!value) return;
+
+    await copyText(value);
+    const original = button.textContent || 'Copy';
+    button.textContent = 'Copied';
+    button.classList.add('copied');
+    window.setTimeout(() => {
+      button.textContent = original;
+      button.classList.remove('copied');
+    }, 1400);
+  }
+
+  async function copyText(value) {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return;
+    }
+
+    const textarea = document.createElement('textarea');
+    textarea.value = value;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.top = '-1000px';
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand('copy');
+    textarea.remove();
+  }
+
   closeButton.addEventListener('click', closeSearch);
   themeButtons.forEach((themeButton) => themeButton.addEventListener('click', () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark')));
   closeChatButton.addEventListener('click', closeChat);
   document.addEventListener('click', (event) => {
     const target = event.target instanceof Element ? event.target : undefined;
+    const copyButton = target?.closest('[data-copy-value], [data-copy-code]');
+    if (copyButton instanceof HTMLButtonElement) {
+      event.preventDefault();
+      handleCopy(copyButton).catch(() => {
+        copyButton.textContent = 'Failed';
+        window.setTimeout(() => {
+          copyButton.textContent = 'Copy';
+        }, 1400);
+      });
+      return;
+    }
     if (target?.closest('[data-open-search]')) {
       event.preventDefault();
       openSearch();
@@ -1020,6 +1115,12 @@ function clientScript(): string {
     navigateTo(url.href).catch((error) => {
       if (error.name !== 'AbortError') window.location.href = url.href;
     });
+  });
+  document.addEventListener('change', (event) => {
+    const target = event.target;
+    if (target instanceof HTMLSelectElement && target.matches('[data-api-variant-select]')) {
+      syncApiVariantMenu(target);
+    }
   });
   window.addEventListener('popstate', () => {
     navigateTo(window.location.href, { replace: true }).catch(() => window.location.reload());
@@ -1125,14 +1226,18 @@ html[data-theme="dark"] .brand-logo-dark { display: block; }
 kbd { border-radius: 4px; padding: 0 5px; color: var(--muted); font: 10.5px ui-monospace, SFMono-Regular, Menlo, monospace; }
 
 .app { min-height: calc(100vh - var(--topbar-height)); display: grid; grid-template-columns: var(--sidebar-width) minmax(0, 1fr); }
-.sidebar { position: sticky; top: var(--topbar-height); height: calc(100vh - var(--topbar-height)); border-right: 1px solid var(--line); padding: 30px 24px 32px 0; overflow-y: auto; }
+.sidebar { position: sticky; top: var(--topbar-height); height: calc(100vh - var(--topbar-height)); border-right: 1px solid var(--line); padding: 30px 24px 32px 0; overflow-y: auto; overflow-x: hidden; }
 .sidebar > .search-trigger { display: none; }
 .sidebar-anchors { display: grid; gap: 4px; margin-bottom: 28px; padding-bottom: 22px; border-bottom: 1px solid var(--line); }
 .sidebar-anchors a { display: grid; grid-template-columns: 24px minmax(0, 1fr); align-items: center; gap: 8px; padding: 6px 8px; }
 .sidebar-anchor-icon { color: var(--primary); font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.sidebar nav, .sidebar nav section { min-width: 0; max-width: 100%; }
 .sidebar nav section + section { margin-top: 20px; }
 .sidebar nav h2 { margin: 0 0 7px; color: var(--muted); font-size: 12px; line-height: 1.35; font-weight: 700; text-transform: uppercase; }
-.sidebar nav a { display: block; border-left: 2px solid transparent; color: var(--muted); font-size: 13.5px; line-height: 1.45; padding: 6px 10px; }
+.sidebar nav h2 a { color: inherit; }
+.sidebar nav h2 a:hover { color: var(--text); }
+.sidebar nav .api-nav-section h2 { text-transform: none; font-size: 13px; }
+.sidebar nav a { display: block; max-width: 100%; border-left: 2px solid transparent; color: var(--muted); font-size: 13.5px; line-height: 1.45; padding: 6px 10px; overflow-wrap: anywhere; }
 .sidebar nav a:hover { border-left-color: var(--line); color: var(--text); }
 .sidebar nav a.active { border-left-color: var(--primary); color: var(--text); font-weight: 680; }
 
@@ -1162,8 +1267,8 @@ h1 { margin: 0; color: var(--text); font-size: 32px; line-height: 1.18; letter-s
 .api-reference-page { display: grid; grid-template-columns: minmax(0, 720px) minmax(320px, 430px); align-items: start; gap: 56px; }
 .api-reference-main h1 { margin-bottom: 14px; }
 .api-description { margin: 0 0 24px; color: var(--muted); font-size: 16px; line-height: 1.6; }
-.api-route-row { display: flex; align-items: center; gap: 10px; overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); padding: 10px 12px; }
-.api-route-row code { flex: 1 0 auto; background: transparent; padding: 0; color: var(--text); font-size: 13px; }
+.api-route-row { display: flex; align-items: center; gap: 10px; overflow-x: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); padding: 10px 12px; }
+.api-route-row code { flex: 1 1 auto; min-width: 0; overflow-x: auto; background: transparent; padding: 0; color: var(--text); font-size: 13px; }
 .api-method { flex: 0 0 auto; min-width: 56px; border-radius: 5px; padding: 5px 8px; color: white; text-align: center; font: 700 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .api-method-get { background: #2563eb; }
 .api-method-post { background: #0f766e; }
@@ -1179,14 +1284,28 @@ h1 { margin: 0; color: var(--text); font-size: 32px; line-height: 1.18; letter-s
 .api-required { border-radius: 999px; background: color-mix(in srgb, var(--primary) 12%, var(--surface)); color: var(--primary); padding: 2px 7px; font-size: 11px; font-weight: 700; }
 .api-schema-note { margin: 0 0 14px; color: var(--muted); font-size: 13.5px; }
 .api-schema-note code { background: var(--surface-alt); padding: 2px 5px; }
+.api-polymorphic { margin-top: 10px; }
+.api-variant-menu { display: grid; gap: 7px; margin-bottom: 14px; }
+.api-variant-menu span { color: var(--text); font-size: 13px; font-weight: 680; }
+.api-variant-menu select { appearance: none; width: 100%; min-width: 0; min-height: 38px; border: 1px solid var(--line); border-radius: 6px; background-color: var(--surface); background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%); background-position: calc(100% - 18px) 50%, calc(100% - 12px) 50%; background-repeat: no-repeat; background-size: 6px 6px, 6px 6px; color: var(--text); padding: 8px 42px 8px 12px; font: inherit; font-size: 13px; line-height: 1.4; }
+.api-variant-menu select:hover { border-color: color-mix(in srgb, var(--primary) 34%, var(--line)); }
+.api-variant-menu select:focus { outline: 2px solid color-mix(in srgb, var(--primary) 24%, transparent); outline-offset: 2px; border-color: var(--primary); }
 .api-variant { margin: 16px 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); padding: 14px 16px 4px; }
+.api-variant[hidden] { display: none; }
 .api-variant h3 { margin: 0 0 2px; color: var(--text); font-size: 14px; font-weight: 720; }
 .api-variant .api-param:last-child { border-bottom: 0; }
 .api-example-panel { position: sticky; top: calc(var(--topbar-height) + 30px); display: grid; gap: 14px; min-width: 0; }
 .api-example-block { overflow: hidden; border: 1px solid color-mix(in srgb, var(--line) 72%, #000); border-radius: var(--radius); background: var(--code); color: #e5edf5; }
-.api-example-heading { border-bottom: 1px solid rgba(255, 255, 255, .09); padding: 10px 14px; color: #aebaca; font-size: 12px; font-weight: 700; }
+.api-example-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid rgba(255, 255, 255, .09); padding: 8px 10px 8px 14px; color: #aebaca; font-size: 12px; font-weight: 700; }
 .api-example-block pre { max-height: 420px; margin: 0; overflow: auto; border: 0; border-radius: 0; background: transparent; padding: 14px; font-size: 12px; line-height: 1.55; }
 .api-example-block code { background: transparent; padding: 0; color: inherit; }
+.copy-button { flex: 0 0 auto; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-alt); color: var(--muted); padding: 5px 9px; font: 700 11px/1 ui-sans-serif, system-ui, sans-serif; cursor: pointer; }
+.copy-button:hover { border-color: color-mix(in srgb, var(--primary) 35%, var(--line)); color: var(--text); }
+.copy-button:focus-visible { outline: 2px solid color-mix(in srgb, var(--primary) 26%, transparent); outline-offset: 2px; }
+.copy-button.copied { border-color: color-mix(in srgb, var(--primary) 45%, var(--line)); color: var(--primary); }
+.copy-button-dark { border-color: rgba(255, 255, 255, .14); background: rgba(255, 255, 255, .06); color: #c8d3df; }
+.copy-button-dark:hover { border-color: rgba(255, 255, 255, .28); color: #fff; }
+.copy-button-dark.copied { border-color: rgba(20, 184, 166, .58); color: #7dd3c7; }
 
 .mdx-card-group, .mdx-tabs, .mdx-columns { display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: 12px; margin: 22px 0; }
 .mdx-tabs { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin: 20px 0; }
