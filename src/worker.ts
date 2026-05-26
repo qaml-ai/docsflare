@@ -302,6 +302,7 @@ function renderShell(page: Page | undefined, url: URL, status = 200, initialThem
   const description = page?.description ?? `${docsContent.site.name} documentation`;
   const themeAttribute = initialTheme ? ` data-theme="${initialTheme}"` : "";
   const themeStyle = initialTheme ? ` style="background:${initialTheme === "dark" ? "#0d1117" : "#fbfcfd"};color-scheme:${initialTheme}"` : "";
+  const currentPath = page?.route ?? url.pathname;
 
   return `<!doctype html>
 <html lang="en"${themeAttribute}${themeStyle}>
@@ -364,8 +365,8 @@ function renderShell(page: Page | undefined, url: URL, status = 200, initialThem
         <kbd>Cmd K</kbd>
       </button>
     </div>
-    <nav class="top-tabs" aria-label="Documentation sections">${renderTopTabs(url.pathname)}</nav>
-    ${renderMobileCrumb(url.pathname, page)}
+    <nav class="top-tabs" aria-label="Documentation sections">${renderTopTabs(currentPath)}</nav>
+    ${renderMobileCrumb(currentPath, page)}
   </header>
   <div class="app">
     <aside class="sidebar">
@@ -374,7 +375,7 @@ function renderShell(page: Page | undefined, url: URL, status = 200, initialThem
         <kbd>/</kbd>
       </button>
       ${renderSidebarAnchors()}
-      <nav>${renderNav(url.pathname)}</nav>
+      <nav>${renderNav(currentPath)}</nav>
     </aside>
     <main class="main">
       ${page ? renderArticle(page) : renderNotFound(status)}
@@ -479,7 +480,9 @@ function renderNotFound(status: number): string {
 }
 
 function renderNav(currentPath: string): string {
-  return docsContent.nav
+  const groups = navGroupsForPath(currentPath);
+
+  return groups
     .map((group) => {
       const groupTitle = groupDisplayTitle(group.title);
       return `<section>
@@ -493,6 +496,12 @@ function renderNav(currentPath: string): string {
       </section>`;
     })
     .join("");
+}
+
+function navGroupsForPath(currentPath: string): GeneratedContent["nav"] {
+  const activeTab = currentTabTitle(currentPath) ?? firstTabTitle();
+  const scopedGroups = docsContent.nav.filter((group) => groupTabTitle(group.title) === activeTab);
+  return scopedGroups.length > 0 ? scopedGroups : docsContent.nav;
 }
 
 function renderTopTabs(currentPath: string): string {
@@ -573,6 +582,10 @@ function currentTabTitle(currentPath: string): string | undefined {
         .filter((group) => group.pages.some((page) => normalizeRoute(page.route) === route))
         .map((group) => groupTabTitle(group.title))[0]
     : undefined;
+}
+
+function firstTabTitle(): string | undefined {
+  return docsContent.nav[0] ? groupTabTitle(docsContent.nav[0].title) : undefined;
 }
 
 function currentSectionLabel(currentPath: string): string | undefined {
