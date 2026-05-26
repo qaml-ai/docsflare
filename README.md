@@ -2,15 +2,15 @@
 
 Docsflare is a CLI-driven documentation renderer for Cloudflare Workers. Point it at a Mintlify-style docs directory, and it builds a Worker that serves rendered Markdown/MDX pages, static assets, search, chat, sitemap, robots.txt, and llms.txt.
 
-The intended workflow is:
+The intended workflow inside a docs content repo is:
 
 ```bash
-docsflare dev docs
-docsflare build docs
-docsflare deploy docs
+docsflare dev
+docsflare build
+docsflare deploy
 ```
 
-This repo includes starter content in `docs/` so the project can run immediately after install.
+This repo includes starter content in `docs/` so the project can run immediately after install. In a real docs repo, Docsflare generates a temporary Worker project in `.docsflare/` and Wrangler deploys that generated Worker.
 
 ## Features
 
@@ -105,12 +105,12 @@ docsflare dev
 │   ├── build-search-index.ts  # Writes Markdown files for AI Search indexing
 │   └── provision-ai-search.sh # Creates and uploads to a Cloudflare AI Search instance
 ├── src/
-│   ├── generated/content.ts   # Generated file produced by docsflare build/dev
-│   └── worker.ts              # Cloudflare Worker router and renderer
-└── wrangler.jsonc             # Worker and production binding config
+│   ├── content.ts             # Placeholder content used for typechecking
+│   └── worker.ts              # Cloudflare Worker router and renderer copied into .docsflare
+└── wrangler.jsonc             # Local example Worker config
 ```
 
-`src/generated/content.ts` is produced from the docs content. Rebuild it after changing docs pages, navigation, or static assets.
+`.docsflare/content.ts`, `.docsflare/worker.ts`, and `.docsflare/wrangler.jsonc` are produced from the docs content. Rebuild after changing docs pages, navigation, or static assets.
 
 ## Start A New Docs Site
 
@@ -137,6 +137,29 @@ docsflare dev ../my-docs
 docsflare build ../my-docs
 ```
 
+## Use In A Docs Repo
+
+Install Docsflare and Wrangler in the docs repo:
+
+```bash
+npm install --save-dev github:qaml-ai/docsflare wrangler
+```
+
+Add scripts:
+
+```json
+{
+  "scripts": {
+    "dev": "docsflare dev",
+    "build": "docsflare build",
+    "deploy": "docsflare deploy",
+    "search:sync": "docsflare search sync"
+  }
+}
+```
+
+Docsflare writes generated build output to `.docsflare/`. Keep that directory ignored.
+
 The directory should contain:
 
 - `docs.json` or `mint.json`
@@ -161,7 +184,7 @@ You can add `docsflare.config.json` in the current project or in the content dir
 
 CLI flags override config values.
 
-`basePath` is optional. When set, Docsflare serves the same docs from both `/` and that mounted path, and generated links, canonical URLs, sitemap URLs, markdown output, search, and chat use the mounted path for requests under it. This is useful when replacing an existing docs site at a path like `/docs`.
+`basePath` is optional. When set, Docsflare serves the same docs from both `/` and that mounted path, and generated links, canonical URLs, sitemap URLs, markdown output, search, and chat use the mounted path for requests under it.
 
 ## Writing Docs
 
@@ -213,7 +236,7 @@ Supported built-in MDX components:
 
 Local development works without Cloudflare AI Search. When the `DOCS_SEARCH` binding is missing, `/api/search` uses an in-memory search over the generated pages and `/api/chat` returns relevant source pages instead of an AI-generated answer.
 
-Production can use Cloudflare AI Search through the `DOCS_SEARCH` binding in `wrangler.jsonc`:
+Production can use Cloudflare AI Search through the `DOCS_SEARCH` binding in the docs repo's `wrangler.jsonc`:
 
 ```json
 {
@@ -259,7 +282,7 @@ docsflare search sync docs --instance my-docs --namespace default
 Build and deploy to the production Wrangler environment:
 
 ```bash
-docsflare deploy docs
+docsflare deploy
 ```
 
 By default, Docsflare serves pages from `/`. To mount the same docs at another path for a deployment, set `basePath` in `docsflare.config.json`:
@@ -270,7 +293,28 @@ By default, Docsflare serves pages from `/`. To mount the same docs at another p
 }
 ```
 
-You can also pass `--base-path /docs` to `build`, `dev`, `deploy`, or `search sync`. `DOCSFLARE_BASE_PATH` remains available as a runtime override for custom Worker deployments.
+`basePath` controls how Docsflare strips and generates URLs inside the Worker. Cloudflare routes should live in `wrangler.jsonc`; for example, set `env.production.routes` to `["example.com/docs*"]` when deploying the Worker only under `/docs`.
+
+For a docs repo deployed at `/docs`, use a Wrangler config like:
+
+```json
+{
+  "name": "my-docs",
+  "main": ".docsflare/worker.ts",
+  "compatibility_date": "2026-03-27",
+  "env": {
+    "production": {
+      "routes": ["example.com/docs*"],
+      "ai_search": [
+        {
+          "binding": "DOCS_SEARCH",
+          "instance_name": "my-docs-search"
+        }
+      ]
+    }
+  }
+}
+```
 
 If you changed docs content and use Cloudflare AI Search, run `docsflare search sync docs` before or after deployment so the hosted search index matches the deployed pages.
 

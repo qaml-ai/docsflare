@@ -73,7 +73,7 @@ type NavLink = {
 
 const projectRoot = process.cwd();
 const root = process.env.DOCSFLARE_CONTENT_DIR ? path.resolve(process.env.DOCSFLARE_CONTENT_DIR) : path.join(projectRoot, "docs");
-const generatedDir = path.join(projectRoot, "src", "generated");
+const generatedDir = process.env.DOCSFLARE_OUTPUT_DIR ? path.resolve(process.env.DOCSFLARE_OUTPUT_DIR) : path.join(projectRoot, ".docsflare");
 const ignoredDirs = new Set([
   ".git",
   ".wrangler",

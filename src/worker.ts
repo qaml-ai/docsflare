@@ -1,4 +1,4 @@
-import { content } from "./generated/content";
+import { content } from "./content";
 
 type GeneratedContent = {
   site: {
@@ -73,7 +73,6 @@ type AiSearchBinding = {
 };
 
 type Env = {
-  DOCSFLARE_BASE_PATH?: string;
   DOCS_SEARCH?: AiSearchBinding;
 };
 
@@ -95,8 +94,8 @@ const legacyRedirects = new Map([
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
-    const configuredBasePath = configuredBasePathForEnv(env);
-    const basePath = basePathForRequest(url.pathname, configuredBasePath);
+    const siteBasePath = configuredBasePath();
+    const basePath = basePathForRequest(url.pathname, siteBasePath);
     const routePath = stripBasePath(url.pathname, basePath);
     const markdownPath = isMarkdownPath(url.pathname);
     const route = normalizeRoute(markdownPath ? stripMarkdownExtension(routePath) : routePath);
@@ -147,7 +146,7 @@ export default {
 
 async function handleSearch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
-  const basePath = basePathForRequest(url.pathname, configuredBasePathForEnv(env));
+  const basePath = basePathForRequest(url.pathname, configuredBasePath());
   let query = url.searchParams.get("q")?.trim() ?? "";
 
   if (request.method === "POST") {
@@ -238,7 +237,7 @@ function prefixResultUrls<T extends { url: string }>(results: T[], basePath: str
 }
 
 async function handleChat(request: Request, env: Env): Promise<Response> {
-  const basePath = basePathForRequest(new URL(request.url).pathname, configuredBasePathForEnv(env));
+  const basePath = basePathForRequest(new URL(request.url).pathname, configuredBasePath());
 
   if (request.method !== "POST") {
     return jsonResponse({ error: "Method not allowed" }, { "cache-control": "no-store" }, 405);
@@ -1802,10 +1801,7 @@ function normalizeRoute(pathname: string): string {
   return route === "/index" ? "/" : route;
 }
 
-function configuredBasePathForEnv(env: Env): string {
-  if (typeof env.DOCSFLARE_BASE_PATH === "string") {
-    return normalizeBasePath(env.DOCSFLARE_BASE_PATH);
-  }
+function configuredBasePath(): string {
   return normalizeBasePath(docsContent.site.basePath ?? "");
 }
 

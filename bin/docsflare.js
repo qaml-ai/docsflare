@@ -56,7 +56,7 @@ async function main() {
     const contentDir = resolveContentDir(options);
     const config = resolveDeploymentConfig(contentDir);
     await buildContent(contentDir, options, config);
-    await runTool("wrangler", wranglerArgsWithConfig(["dev"], options, config), { contentDir, inherit: true, config });
+    await runTool("wrangler", wranglerArgsWithConfig(["dev"], options, config, contentDir), { contentDir, inherit: true, config });
     return;
   }
 
@@ -65,7 +65,7 @@ async function main() {
     const contentDir = resolveContentDir(options);
     const config = resolveDeploymentConfig(contentDir);
     await build(contentDir, options, config);
-    await runTool("wrangler", wranglerArgsWithConfig(["deploy", "--env", options.env ?? "production"], options, config), { contentDir, inherit: true, config });
+    await runTool("wrangler", wranglerArgsWithConfig(["deploy", "--env", options.env ?? "production"], options, config, contentDir), { contentDir, inherit: true, config });
     return;
   }
 
@@ -94,6 +94,7 @@ async function build(contentDir, options, config) {
 
 async function buildContent(contentDir, options = {}, config = resolveDeploymentConfig(contentDir)) {
   await runTool("tsx", ["scripts/build-content.ts"], { contentDir, config: configWithOptionOverrides(config, options) });
+  writeWorkerRuntime(contentDir);
 }
 
 async function buildSearchIndex(contentDir) {
@@ -101,7 +102,9 @@ async function buildSearchIndex(contentDir) {
 }
 
 async function provisionSearch(contentDir, options, config) {
-  const extraEnv = {};
+  const extraEnv = {
+    AI_SEARCH_DOCS_DIR: process.env.AI_SEARCH_DOCS_DIR ?? path.join(docsflareOutputDir(contentDir), "search")
+  };
   const mergedConfig = configWithOptionOverrides(config, options);
   const instance = options.instance ?? mergedConfig.search?.instance;
   const namespace = options.namespace ?? mergedConfig.search?.namespace;
@@ -234,24 +237,24 @@ function runtimeBasePathForConfig(config) {
   return typeof config.basePath === "string" ? config.basePath : undefined;
 }
 
-function extraEnvForConfig(config) {
+function buildEnvForConfig(config) {
   const basePath = runtimeBasePathForConfig(config);
   return basePath === undefined ? {} : { DOCSFLARE_BASE_PATH: basePath };
 }
 
-function wranglerArgsWithConfig(args, options, config) {
-  const basePath = runtimeBasePathForConfig(configWithOptionOverrides(config, options));
-  return basePath === undefined ? args : [...args, "--var", `DOCSFLARE_BASE_PATH:${basePath || "/"}`];
+function wranglerArgsWithConfig(args, _options, _config, contentDir = projectRoot) {
+  return hasWranglerConfig(contentDir) ? args : [...args, "--config", path.join(".docsflare", "wrangler.jsonc")];
 }
 
 async function runTool(name, args, options) {
-  return run(binPath(name), args, {
-    cwd: packageRoot,
+  return run(binPath(name, options.contentDir), args, {
+    cwd: name === "wrangler" ? options.contentDir : packageRoot,
     inherit: options.inherit,
     env: {
       ...process.env,
       DOCSFLARE_CONTENT_DIR: options.contentDir,
-      ...extraEnvForConfig(options.config ?? {}),
+      DOCSFLARE_OUTPUT_DIR: docsflareOutputDir(options.contentDir),
+      ...(name === "tsx" ? buildEnvForConfig(options.config ?? {}) : {}),
       ...(options.extraEnv ?? {})
     }
   });
@@ -264,6 +267,7 @@ async function runScript(scriptPath, options) {
     env: {
       ...process.env,
       DOCSFLARE_CONTENT_DIR: options.contentDir,
+      DOCSFLARE_OUTPUT_DIR: docsflareOutputDir(options.contentDir),
       ...(options.extraEnv ?? {})
     }
   });
@@ -303,9 +307,41 @@ function run(commandPath, runArgs, options) {
   });
 }
 
-function binPath(name) {
+function binPath(name, cwd = projectRoot) {
   const suffix = process.platform === "win32" ? ".cmd" : "";
-  return path.join(packageRoot, "node_modules", ".bin", `${name}${suffix}`);
+  const binaryName = `${name}${suffix}`;
+  const candidates = [
+    path.join(cwd, "node_modules", ".bin", binaryName),
+    path.join(packageRoot, "node_modules", ".bin", binaryName)
+  ];
+  return candidates.find((candidate) => existsSync(candidate)) ?? binaryName;
+}
+
+function docsflareOutputDir(contentDir) {
+  return path.join(contentDir, ".docsflare");
+}
+
+function hasWranglerConfig(contentDir) {
+  return ["wrangler.jsonc", "wrangler.json", "wrangler.toml"].some((filename) => existsSync(path.join(contentDir, filename)));
+}
+
+function writeWorkerRuntime(contentDir) {
+  const outputDir = docsflareOutputDir(contentDir);
+  mkdirSync(outputDir, { recursive: true });
+  writeFileSync(path.join(outputDir, "worker.ts"), readFileSync(path.join(packageRoot, "src", "worker.ts"), "utf8"));
+  writeFileSync(path.join(outputDir, "wrangler.jsonc"), `${JSON.stringify({
+    name: "docsflare",
+    main: "worker.ts",
+    compatibility_date: "2026-03-27",
+    observability: {
+      enabled: true
+    },
+    env: {
+      production: {
+        name: "docsflare"
+      }
+    }
+  }, null, 2)}\n`);
 }
 
 function initProject(options) {

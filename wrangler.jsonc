@@ -1,20 +1,9 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "docsflare",
-  "main": "src/worker.ts",
+  "main": "docs/.docsflare/worker.ts",
   "compatibility_date": "2026-03-27",
   "observability": {
     "enabled": true
-  },
-  "env": {
-    "production": {
-      "name": "docsflare",
-      "ai_search": [
-        {
-          "binding": "DOCS_SEARCH",
-          "instance_name": "docsflare-docs"
-        }
-      ]
-    }
   }
 }

@@ -1,6 +1,6 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { content } from "../src/generated/content";
+import { pathToFileURL } from "node:url";
 
 type SearchPage = {
   title: string;
@@ -10,7 +10,9 @@ type SearchPage = {
   markdown: string;
 };
 
-const outputDir = path.join(process.cwd(), ".docsflare", "search");
+const docsflareDir = process.env.DOCSFLARE_OUTPUT_DIR ? path.resolve(process.env.DOCSFLARE_OUTPUT_DIR) : path.join(process.cwd(), ".docsflare");
+const outputDir = path.join(docsflareDir, "search");
+const { content } = await import(pathToFileURL(path.join(docsflareDir, "content.ts")).href);
 const pages = content.pages as readonly SearchPage[];
 
 rmSync(outputDir, { recursive: true, force: true });
