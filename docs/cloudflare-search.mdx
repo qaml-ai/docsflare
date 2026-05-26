@@ -24,6 +24,6 @@ Docsflare uses the current Cloudflare AI Search Worker binding. The production `
 
 ## Indexing options
 
-For production, run `npm run provision:ai-search`. The script creates a built-in-storage AI Search instance and uploads generated Markdown documents from `.docsflare/search`.
+For production, run `docsflare search sync docs`. The command creates a built-in-storage AI Search instance and uploads generated Markdown documents from `.docsflare/search`.
 
 For local development or missing bindings, the Worker falls back to a static in-memory search over built pages. That fallback is intentionally simple and exists only so the UI remains usable before Cloudflare AI Search is configured.

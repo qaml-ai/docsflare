@@ -1,0 +1,51 @@
+---
+title: Quickstart
+description: Run the local worker and deploy the generated docs site.
+---
+
+# Quickstart
+
+Install Docsflare in your project or run it through this repository's npm scripts. Docsflare expects docs content in `docs/` by default.
+
+```bash
+npm install
+npm run dev
+```
+
+The same command surface is available through the CLI:
+
+```bash
+docsflare dev docs
+docsflare build docs
+docsflare doctor docs
+```
+
+The content build reads `docs/docs.json` or `docs/mint.json` and all referenced Markdown/MDX pages from that content directory.
+
+## Create a docs project
+
+Create starter content:
+
+```bash
+docsflare init docs
+docsflare dev docs
+```
+
+## Use existing Mintlify content
+
+Point the CLI at an existing Mintlify-style docs directory:
+
+```bash
+docsflare dev ../my-docs
+docsflare doctor ../my-docs
+```
+
+Most projects only need to adjust unsupported custom React imports. Common Mintlify documentation components are mapped to built-in HTML equivalents during the build.
+
+## Deploy
+
+Deploy the generated Worker:
+
+```bash
+docsflare deploy docs
+```
