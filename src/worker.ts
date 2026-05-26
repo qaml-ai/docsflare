@@ -391,7 +391,7 @@ function renderShell(page: Page | undefined, url: URL, status = 200, initialThem
     <div class="search-dialog">
       <div class="search-box">
         <input data-search-input placeholder="Search docs..." autocomplete="off">
-        <button type="button" data-close-search aria-label="Close search">Esc</button>
+        <button class="overlay-close" type="button" data-close-search aria-label="Close search"><span aria-hidden="true"></span></button>
       </div>
       <div class="search-results" data-search-results></div>
     </div>
@@ -404,7 +404,7 @@ function renderShell(page: Page | undefined, url: URL, status = 200, initialThem
           <strong>Ask the docs</strong>
           <span>Answers from Cloudflare AI Search</span>
         </div>
-        <button type="button" data-close-chat aria-label="Close chat">Esc</button>
+        <button class="overlay-close" type="button" data-close-chat aria-label="Close chat"><span aria-hidden="true"></span></button>
       </div>
       <div class="chat-messages" data-chat-messages>
         <div class="chat-message assistant">Ask a question about these docs.</div>
@@ -1191,6 +1191,16 @@ function clientScript(): string {
       });
       return;
     }
+    if (target?.closest('[data-close-search]')) {
+      event.preventDefault();
+      closeSearch();
+      return;
+    }
+    if (target?.closest('[data-close-chat]')) {
+      event.preventDefault();
+      closeChat();
+      return;
+    }
     if (target?.closest('[data-toggle-mobile-nav]')) {
       event.preventDefault();
       toggleMobileNav();
@@ -1470,6 +1480,12 @@ h1 { margin: 0; color: var(--text); font-size: 32px; line-height: 1.18; letter-s
 .search-box input, .search-box button { height: 54px; border: 0; background: transparent; font: inherit; font-size: 16px; }
 .search-box input { padding: 0 18px; outline: none; }
 .search-box button, .chat-header button { color: var(--muted); cursor: pointer; }
+.overlay-close { display: grid; place-items: center; }
+.overlay-close:hover { color: var(--text); background: var(--surface-alt); }
+.overlay-close span { position: relative; display: block; width: 16px; height: 16px; }
+.overlay-close span::before, .overlay-close span::after { content: ""; position: absolute; left: 7px; top: 1px; width: 2px; height: 14px; border-radius: 2px; background: currentColor; }
+.overlay-close span::before { transform: rotate(45deg); }
+.overlay-close span::after { transform: rotate(-45deg); }
 .search-results { max-height: min(520px, 62vh); overflow-y: auto; padding: 8px; }
 .search-provider { padding: 8px 12px 4px; color: var(--muted); font-size: 12px; font-weight: 680; }
 .search-result { display: block; border-radius: 6px; padding: 12px; outline: none; }
@@ -1487,7 +1503,7 @@ h1 { margin: 0; color: var(--text); font-size: 32px; line-height: 1.18; letter-s
 .chat-header { justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--line); padding: 14px 16px; }
 .chat-header strong, .chat-header span { display: block; }
 .chat-header span { font-size: 12px; }
-.chat-header button { border: 0; background: transparent; font: inherit; }
+.chat-header button { flex: 0 0 auto; width: 38px; height: 38px; border: 0; border-radius: 6px; background: transparent; font: inherit; }
 .chat-messages { height: min(460px, 55vh); overflow-y: auto; padding: 14px; background: var(--bg); }
 .chat-message { max-width: 88%; border-radius: var(--radius); padding: 10px 12px; margin: 0 0 10px; white-space: pre-wrap; }
 .chat-message p { margin: 0; }
@@ -1550,18 +1566,15 @@ html[data-theme="dark"] .search-panel { background: rgba(0, 0, 0, .52); }
   .mdx-card { min-height: 132px; }
   .content > .mdx-card { min-height: 124px; }
   .pager a:last-child { text-align: left; }
-  .search-panel { display: flex; align-items: stretch; padding: 0; }
-  .search-dialog { display: flex; flex-direction: column; width: 100%; max-width: none; height: 100dvh; max-height: none; margin: 0; border-radius: 0; }
+  .search-panel { padding: 72px 12px 18px; }
+  .search-dialog { width: 100%; max-width: 640px; }
   .search-box { grid-template-columns: minmax(0, 1fr) 64px; }
-  .search-box { padding-top: env(safe-area-inset-top); }
   .search-box input, .search-box button, .chat-form textarea, .chat-form button { font-size: 16px; }
   .search-box input { padding-inline: 14px; }
-  .search-results { flex: 1 1 auto; max-height: none; overscroll-behavior: contain; }
+  .search-results { max-height: min(520px, calc(100dvh - 150px)); overscroll-behavior: contain; }
   .chat-launcher { right: 16px; bottom: calc(16px + env(safe-area-inset-bottom)); min-height: 44px; padding-inline: 16px; }
-  .chat-panel { inset: 0; width: auto; z-index: 101; }
-  .chat-dialog { display: flex; flex-direction: column; height: 100dvh; max-height: none; border-radius: 0; }
-  .chat-header { padding-top: calc(14px + env(safe-area-inset-top)); }
-  .chat-messages { flex: 1 1 auto; height: auto; min-height: 220px; max-height: none; overscroll-behavior: contain; }
+  .chat-panel { left: 12px; right: 12px; bottom: calc(72px + env(safe-area-inset-bottom)); width: auto; }
+  .chat-messages { height: min(360px, 48dvh); overscroll-behavior: contain; }
   .chat-form { grid-template-columns: minmax(0, 1fr) 68px; padding: 10px 10px calc(10px + env(safe-area-inset-bottom)); }
   .chat-form textarea { min-height: 44px; max-height: 120px; }
   .chat-form button { min-height: 44px; padding-inline: 0; }
