@@ -1338,8 +1338,8 @@ h1 { margin: 0; color: var(--text); font-size: 32px; line-height: 1.18; letter-s
 .mdx-card-group[data-cols="1"] .mdx-card, .content > .mdx-card { min-height: 112px; }
 .mdx-card[href]::after { content: ""; position: absolute; right: 18px; top: 20px; width: 7px; height: 7px; border-top: 1.5px solid var(--muted); border-right: 1.5px solid var(--muted); transform: rotate(45deg); }
 .mdx-card:hover { border-color: color-mix(in srgb, var(--primary) 42%, var(--line)); background: color-mix(in srgb, var(--primary) 3%, var(--surface)); }
-.mdx-card-icon { display: block; width: 22px; height: 22px; margin-bottom: 18px; color: var(--primary); }
-.mdx-card-icon svg { display: block; width: 100%; height: 100%; }
+.mdx-card-icon { display: grid; place-items: center; width: 32px; height: 32px; margin-bottom: 16px; border: 1px solid color-mix(in srgb, currentColor 20%, transparent); border-radius: 8px; background: color-mix(in srgb, currentColor 10%, transparent); color: var(--primary); }
+.mdx-card-icon svg { display: block; width: 18px; height: 18px; }
 .mdx-card strong, .mdx-card div { display: block; }
 .mdx-card strong { color: var(--text); font-weight: 680; }
 .mdx-card div { margin-top: 7px; color: var(--muted); font-size: 13.5px; line-height: 1.55; }
