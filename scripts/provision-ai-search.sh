@@ -4,8 +4,8 @@ set -euo pipefail
 INSTANCE_NAME="${AI_SEARCH_INSTANCE:-docsflare-docs}"
 NAMESPACE="${AI_SEARCH_NAMESPACE:-default}"
 SEARCH_DIR="${AI_SEARCH_DOCS_DIR:-.docsflare/search}"
-ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID:-}"
-API_TOKEN="${CLOUDFLARE_API_TOKEN:-}"
+ACCOUNT_ID="${DOCSFLARE_CLOUDFLARE_ACCOUNT_ID:-${CLOUDFLARE_ACCOUNT_ID:-}}"
+API_TOKEN="${DOCSFLARE_CLOUDFLARE_API_TOKEN:-${CLOUDFLARE_API_TOKEN:-}}"
 
 if [[ -z "$ACCOUNT_ID" ]] && command -v cf >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
   ACCOUNT_ID="$(cf context show 2>/dev/null | jq -r '.accountId.value // empty')"
@@ -16,12 +16,12 @@ if [[ -z "$API_TOKEN" && -f "$HOME/.cf/config.toml" ]]; then
 fi
 
 if [[ -z "$ACCOUNT_ID" ]]; then
-  echo "Missing Cloudflare account ID. Set CLOUDFLARE_ACCOUNT_ID or configure cf context." >&2
+  echo "Missing Cloudflare account ID. Set DOCSFLARE_CLOUDFLARE_ACCOUNT_ID or configure cf context." >&2
   exit 1
 fi
 
 if [[ -z "$API_TOKEN" ]]; then
-  echo "Missing Cloudflare API token. Set CLOUDFLARE_API_TOKEN or run cf auth login." >&2
+  echo "Missing Cloudflare API token. Set DOCSFLARE_CLOUDFLARE_API_TOKEN or run cf auth login." >&2
   exit 1
 fi
 
