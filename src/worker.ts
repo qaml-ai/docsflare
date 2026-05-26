@@ -408,10 +408,21 @@ function renderSearchIndexJson(): string {
 
 function renderBrand(): string {
   const logo = docsContent.site.logo;
-  const logoPath = typeof logo === "string" ? logo : logo?.light ?? logo?.dark;
+  const logoPath = typeof logo === "string" ? logo : undefined;
 
   if (logoPath) {
     return `<img class="brand-logo" src="${escapeHtml(logoPath)}" alt="${escapeHtml(docsContent.site.name)}">`;
+  }
+
+  if (typeof logo === "object" && (logo.light || logo.dark)) {
+    if (logo.light && logo.dark && logo.light !== logo.dark) {
+      return `<img class="brand-logo brand-logo-light" src="${escapeHtml(logo.light)}" alt="${escapeHtml(docsContent.site.name)}"><img class="brand-logo brand-logo-dark" src="${escapeHtml(logo.dark)}" alt="${escapeHtml(docsContent.site.name)}">`;
+    }
+
+    const singleLogoPath = logo.light ?? logo.dark;
+    if (singleLogoPath) {
+      return `<img class="brand-logo" src="${escapeHtml(singleLogoPath)}" alt="${escapeHtml(docsContent.site.name)}">`;
+    }
   }
 
   return `<span class="brand-mark">${escapeHtml(docsContent.site.name.slice(0, 1))}</span><span>${escapeHtml(docsContent.site.name)}</span>`;
@@ -932,6 +943,9 @@ a { color: inherit; text-decoration: none; }
 .brand { min-width: 0; display: flex; align-items: center; gap: 10px; font-weight: 650; font-size: 15px; color: #1f2937; }
 .brand span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .brand-logo { display: block; width: auto; height: 32px; max-width: 160px; object-fit: contain; object-position: left center; }
+.brand-logo-dark { display: none; }
+html[data-theme="dark"] .brand-logo-light { display: none; }
+html[data-theme="dark"] .brand-logo-dark { display: block; }
 .brand-mark { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 7px; background: var(--primary); color: white; flex: 0 0 auto; }
 .brand-mark-image { background: transparent; overflow: hidden; }
 .brand-mark img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; }
