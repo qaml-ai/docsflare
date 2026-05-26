@@ -87,7 +87,8 @@ const assetByRoute = new Map((docsContent.assets ?? []).map((asset) => [normaliz
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
-    const route = normalizeRoute(url.pathname);
+    const markdownPath = isMarkdownPath(url.pathname);
+    const route = normalizeRoute(markdownPath ? stripMarkdownExtension(url.pathname) : url.pathname);
 
     if (route === "/api/search") {
       return handleSearch(request, env, ctx);
@@ -119,6 +120,10 @@ export default {
 
     if (!page) {
       return htmlResponse(renderShell(undefined, url, 404, initialTheme), 404);
+    }
+
+    if (wantsMarkdown(request, markdownPath)) {
+      return markdownResponse(renderPageMarkdown(page, url.origin));
     }
 
     return htmlResponse(renderShell(page, url, 200, initialTheme), 200);
@@ -674,6 +679,17 @@ Description: ${page.description}
 ${page.markdown}`)
   .join("\n\n")}
 `;
+}
+
+function renderPageMarkdown(page: Page, origin: string): string {
+  const sections = [
+    `> ## Documentation Index\n> Fetch the complete documentation index at: ${origin}/llms.txt\n> Use this file to discover all available pages before exploring further.`,
+    `# ${page.title}`,
+    page.description ? `> ${page.description}` : "",
+    page.markdown
+  ];
+
+  return `${sections.filter(Boolean).join("\n\n").trim()}\n`;
 }
 
 function clientScript(): string {
@@ -1468,7 +1484,8 @@ function htmlResponse(html: string, status: number): Response {
   return new Response(html, {
     status,
     headers: {
-      "content-type": "text/html; charset=utf-8"
+      "content-type": "text/html; charset=utf-8",
+      "vary": "accept"
     }
   });
 }
@@ -1491,6 +1508,18 @@ function textResponse(text: string, contentType: string): Response {
   });
 }
 
+function markdownResponse(markdown: string): Response {
+  return new Response(markdown, {
+    headers: {
+      "content-type": "text/markdown; charset=utf-8",
+      "content-disposition": "inline",
+      "link": "</llms.txt>; rel=\"llms-txt\"",
+      "vary": "accept",
+      "x-llms-txt": "/llms.txt"
+    }
+  });
+}
+
 function xmlResponse(xml: string): Response {
   return textResponse(xml, "application/xml; charset=utf-8");
 }
@@ -1509,6 +1538,49 @@ function assetResponse(asset: Asset): Response {
       "cache-control": "public, max-age=31536000, immutable"
     }
   });
+}
+
+function wantsMarkdown(request: Request, forced = false): boolean {
+  if (forced) return true;
+
+  const accept = request.headers.get("accept");
+  if (!accept) return false;
+
+  const preferences = accept
+    .split(",")
+    .map((item, index) => {
+      const [rawType, ...params] = item.trim().split(";").map((part) => part.trim());
+      const qParam = params.find((param) => param.startsWith("q="));
+      const quality = qParam ? Number(qParam.slice(2)) : 1;
+      return {
+        type: rawType.toLowerCase(),
+        quality: Number.isFinite(quality) ? quality : 0,
+        index
+      };
+    })
+    .filter((item) => item.type.length > 0 && item.quality > 0);
+
+  const markdown = bestAccepted(preferences, ["text/markdown", "text/mdx", "application/mdx", "text/x-markdown"]);
+  if (!markdown) return false;
+
+  const html = bestAccepted(preferences, ["text/html", "application/xhtml+xml"]);
+  if (!html) return true;
+
+  return markdown.quality > html.quality || (markdown.quality === html.quality && markdown.index < html.index);
+}
+
+function bestAccepted(preferences: Array<{ type: string; quality: number; index: number }>, types: string[]): { quality: number; index: number } | undefined {
+  return preferences
+    .filter((item) => types.includes(item.type))
+    .sort((a, b) => b.quality - a.quality || a.index - b.index)[0];
+}
+
+function isMarkdownPath(pathname: string): boolean {
+  return /\.(md|mdx)$/i.test(pathname);
+}
+
+function stripMarkdownExtension(pathname: string): string {
+  return pathname.replace(/\.(md|mdx)$/i, "");
 }
 
 function normalizeRoute(pathname: string): string {
