@@ -256,7 +256,7 @@ Production can use Cloudflare AI Search through the `DOCS_SEARCH` binding in the
 After deployment, the Worker can lazily sync AI Search through the `DOCS_SEARCH` binding:
 
 ```bash
-curl -fsS https://example.com/docs/api/search/sync
+curl -fsS -X POST https://example.com/docs/api/search/sync
 ```
 
 The endpoint is public and idempotent. It calculates a content hash for the generated docs, skips work when that hash has already synced, and otherwise updates AI Search through the Worker binding. Unchanged documents are skipped, changed documents are replaced, new documents are uploaded, and removed documents are deleted.
@@ -330,7 +330,7 @@ For a docs repo deployed at `/docs`, use a Wrangler config like:
 }
 ```
 
-If you changed docs content and use Cloudflare AI Search, call `/api/search/sync` after deployment so the hosted search index matches the deployed pages.
+If you changed docs content and use Cloudflare AI Search, send a `POST` request to `/api/search/sync` after deployment so the hosted search index matches the deployed pages.
 
 ## Troubleshooting
 
@@ -354,7 +354,7 @@ Confirm that:
 
 - `wrangler.jsonc` has the `DOCS_SEARCH` AI Search binding in the `production` environment
 - the AI Search instance name matches `instance_name`
-- `/api/search/sync` returns a successful response, or `docsflare search sync docs` completed successfully for manual REST API sync
+- `POST /api/search/sync` returns a successful response, or `docsflare search sync docs` completed successfully for manual REST API sync
 - the deployed Worker is using the `production` environment
 
 ### Provisioning cannot find your Cloudflare account

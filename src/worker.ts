@@ -225,8 +225,8 @@ async function handleSearch(request: Request, env: Env, ctx: ExecutionContext): 
 }
 
 async function handleSearchSync(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-  if (request.method !== "GET" && request.method !== "POST") {
-    return jsonResponse({ error: "Method not allowed" }, { "cache-control": "no-store" }, 405);
+  if (request.method !== "POST") {
+    return jsonResponse({ error: "Method not allowed" }, { allow: "POST", "cache-control": "no-store" }, 405);
   }
 
   if (!env.DOCS_SEARCH?.items) {
