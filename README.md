@@ -34,7 +34,7 @@ This repo includes starter content in `docs/` so the project can run immediately
 npx wrangler login
 ```
 
-Cloudflare AI Search provisioning also needs `jq` and `curl`. The provisioning script can read `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` from the environment, or use the local Cloudflare `cf` CLI context when available.
+Manual Cloudflare AI Search REST API sync needs a Cloudflare account ID and API token. Deployed Workers can sync through the `DOCS_SEARCH` binding without a Cloudflare API token.
 
 ## Quick Start
 
@@ -101,9 +101,9 @@ docsflare dev
 │   ├── *.mdx                  # Documentation pages
 │   └── logo.svg               # Static asset served by the Worker
 ├── scripts/
-│   ├── build-content.ts       # Converts docs config, MDX, and assets into generated content
-│   ├── build-search-index.ts  # Writes Markdown files for AI Search indexing
-│   └── provision-ai-search.sh # Creates and uploads to a Cloudflare AI Search instance
+│   ├── build-content.ts        # Converts docs config, MDX, and assets into generated content
+│   ├── build-search-index.ts   # Writes Markdown files for AI Search indexing
+│   └── provision-ai-search.mjs # Manual REST API AI Search sync fallback
 ├── src/
 │   ├── content.ts             # Placeholder content used for typechecking
 │   └── worker.ts              # Cloudflare Worker router and renderer copied into .docsflare
@@ -253,19 +253,27 @@ Production can use Cloudflare AI Search through the `DOCS_SEARCH` binding in the
 }
 ```
 
-Provision the AI Search instance and upload the generated search documents:
+After deployment, the Worker can lazily sync AI Search through the `DOCS_SEARCH` binding:
+
+```bash
+curl -fsS https://example.com/docs/api/search/sync
+```
+
+The endpoint is public and idempotent. It calculates a content hash for the generated docs, skips work when that hash has already synced, and otherwise updates AI Search through the Worker binding. Unchanged documents are skipped, changed documents are replaced, new documents are uploaded, and removed documents are deleted.
+
+You can still provision the AI Search instance and sync from a local machine through the REST API:
 
 ```bash
 docsflare search sync docs
 ```
 
-The command runs the content build, writes Markdown search documents to `.docsflare/search`, creates an AI Search instance named `docsflare-docs` when needed, and incrementally updates the index. Unchanged documents are skipped, changed documents are replaced, new documents are uploaded, and removed documents are deleted.
+That command runs the content build, writes Markdown search documents to `.docsflare/search`, creates an AI Search instance named `docsflare-docs` when needed, and incrementally updates the index. It is useful before the Worker exists, or when you need a manual sync from outside the deployed Worker.
 
 Useful environment variables:
 
 ```bash
-DOCSFLARE_CLOUDFLARE_ACCOUNT_ID=...  # Cloudflare account ID
-DOCSFLARE_CLOUDFLARE_API_TOKEN=...   # API token used by the provisioning script
+DOCSFLARE_CLOUDFLARE_ACCOUNT_ID=...  # Cloudflare account ID for REST API sync
+DOCSFLARE_CLOUDFLARE_API_TOKEN=...   # API token for REST API sync
 AI_SEARCH_INSTANCE=...        # Defaults to docsflare-docs
 AI_SEARCH_NAMESPACE=...       # Defaults to default
 AI_SEARCH_DOCS_DIR=...        # Defaults to .docsflare/search
@@ -322,7 +330,7 @@ For a docs repo deployed at `/docs`, use a Wrangler config like:
 }
 ```
 
-If you changed docs content and use Cloudflare AI Search, run `docsflare search sync docs` before or after deployment so the hosted search index matches the deployed pages.
+If you changed docs content and use Cloudflare AI Search, call `/api/search/sync` after deployment so the hosted search index matches the deployed pages.
 
 ## Troubleshooting
 
@@ -346,7 +354,7 @@ Confirm that:
 
 - `wrangler.jsonc` has the `DOCS_SEARCH` AI Search binding in the `production` environment
 - the AI Search instance name matches `instance_name`
-- `docsflare search sync docs` completed successfully
+- `/api/search/sync` returns a successful response, or `docsflare search sync docs` completed successfully for manual REST API sync
 - the deployed Worker is using the `production` environment
 
 ### Provisioning cannot find your Cloudflare account
@@ -354,13 +362,13 @@ Confirm that:
 Set the account ID explicitly:
 
 ```bash
-CLOUDFLARE_ACCOUNT_ID=your-account-id docsflare search sync docs
+DOCSFLARE_CLOUDFLARE_ACCOUNT_ID=your-account-id docsflare search sync docs
 ```
 
 If the script cannot find a token, set:
 
 ```bash
-CLOUDFLARE_API_TOKEN=your-token docsflare search sync docs
+DOCSFLARE_CLOUDFLARE_API_TOKEN=your-token docsflare search sync docs
 ```
 
 ## Contributing

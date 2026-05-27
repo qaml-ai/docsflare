@@ -56,6 +56,15 @@ type ChatMessage = {
 };
 
 type AiSearchBinding = {
+  items?: {
+    upload(name: string, content: string | ArrayBuffer | ReadableStream, options?: { metadata?: Record<string, string> }): Promise<{ id: string; key: string }>;
+    list(options?: { page?: number; per_page?: number; status?: string; sort_by?: string; search?: string; source?: string }): Promise<{ result?: AiSearchItem[]; result_info?: { page?: number; per_page?: number; total_count?: number } }>;
+    delete(itemId: string): Promise<void>;
+    get(itemId: string): {
+      info(): Promise<AiSearchItem>;
+      download(): Promise<{ filename: string; contentType: string; size: number; body: ReadableStream }>;
+    };
+  };
   search(input: {
     query?: string;
     messages?: ChatMessage[];
@@ -74,6 +83,20 @@ type AiSearchBinding = {
 
 type Env = {
   DOCS_SEARCH?: AiSearchBinding;
+};
+
+type AiSearchItem = {
+  id: string;
+  key: string;
+  status?: string;
+  file_size?: number;
+  metadata?: Record<string, unknown>;
+};
+
+type SearchDocument = {
+  key: string;
+  hash: string;
+  body: string;
 };
 
 const docsContent = content as unknown as GeneratedContent;
@@ -102,6 +125,10 @@ export default {
 
     if (route === "/api/search") {
       return handleSearch(request, env, ctx);
+    }
+
+    if (route === "/api/search/sync") {
+      return handleSearchSync(request, env, ctx);
     }
 
     if (route === "/api/chat") {
@@ -195,6 +222,159 @@ async function handleSearch(request: Request, env: Env, ctx: ExecutionContext): 
   }
 
   return jsonResponse({ provider: "static-fallback", results: prefixResultUrls(localSearch(query), basePath) });
+}
+
+async function handleSearchSync(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  if (request.method !== "GET" && request.method !== "POST") {
+    return jsonResponse({ error: "Method not allowed" }, { "cache-control": "no-store" }, 405);
+  }
+
+  if (!env.DOCS_SEARCH?.items) {
+    return jsonResponse({ provider: "static-fallback", synced: false, reason: "DOCS_SEARCH items binding unavailable" });
+  }
+
+  const contentHash = await searchContentHash();
+  const markerRequest = new Request(`https://docsflare.internal/search-sync/${contentHash}`);
+  const syncCache = await caches.open("docsflare-search-sync");
+  const cached = await syncCache.match(markerRequest);
+
+  if (cached) {
+    return jsonResponse({ provider: "cloudflare-ai-search", synced: false, skipped: true, contentHash });
+  }
+
+  const lockRequest = new Request(`https://docsflare.internal/search-sync/lock/${contentHash}`);
+  const locked = await syncCache.match(lockRequest);
+  if (locked) {
+    return jsonResponse({ provider: "cloudflare-ai-search", synced: false, pending: true, contentHash });
+  }
+
+  await syncCache.put(lockRequest, jsonResponse({ locked: true }, { "cache-control": "public, max-age=120" }));
+  const syncPromise = syncSearchIndex(env.DOCS_SEARCH)
+    .then((result) => syncCache.put(markerRequest, jsonResponse(result, { "cache-control": "public, max-age=31536000" })))
+    .catch((error) => {
+      console.error("Docsflare lazy search sync failed", error);
+    });
+
+  ctx.waitUntil(syncPromise);
+
+  return jsonResponse({ provider: "cloudflare-ai-search", synced: true, accepted: true, contentHash }, { "cache-control": "no-store" }, 202);
+}
+
+async function syncSearchIndex(search: AiSearchBinding): Promise<Record<string, unknown>> {
+  if (!search.items) {
+    return { synced: false, reason: "items binding unavailable" };
+  }
+
+  const localDocuments = await searchDocuments();
+  const localByKey = new Map(localDocuments.map((document) => [document.key, document]));
+  const remoteItems = await listAiSearchItems(search);
+  const remoteByKey = new Map(remoteItems.map((item) => [item.key, item]));
+  const removedItems = remoteItems.filter((item) => !localByKey.has(item.key));
+  const newDocuments = localDocuments.filter((document) => !remoteByKey.has(document.key));
+  const changedDocuments: SearchDocument[] = [];
+  let unchanged = 0;
+
+  await runConcurrent(removedItems, 4, async (item) => {
+    await search.items?.delete(item.id);
+  });
+
+  await runConcurrent(localDocuments.filter((document) => remoteByKey.has(document.key)), 4, async (document) => {
+    const item = remoteByKey.get(document.key);
+    if (!item) return;
+    const remoteHash = await remoteItemHash(search, item);
+    if (remoteHash === document.hash) {
+      unchanged += 1;
+      return;
+    }
+    await search.items?.delete(item.id);
+    changedDocuments.push(document);
+  });
+
+  const documentsToUpload = [...newDocuments, ...changedDocuments].sort((a, b) => a.key.localeCompare(b.key));
+  await runConcurrent(documentsToUpload, 4, async (document) => {
+    await search.items?.upload(document.key, document.body);
+  });
+
+  return {
+    synced: true,
+    unchanged,
+    uploaded: documentsToUpload.length,
+    deleted: removedItems.length,
+    total: localDocuments.length
+  };
+}
+
+async function listAiSearchItems(search: AiSearchBinding): Promise<AiSearchItem[]> {
+  if (!search.items) return [];
+  const items: AiSearchItem[] = [];
+  const perPage = 50;
+
+  for (let page = 1; ; page += 1) {
+    const response = await search.items.list({ page, per_page: perPage });
+    const result = response.result ?? [];
+    items.push(...result.filter((item): item is AiSearchItem => typeof item?.id === "string" && typeof item?.key === "string"));
+
+    const totalCount = response.result_info?.total_count;
+    if (typeof totalCount === "number" && items.length >= totalCount) break;
+    if (result.length < perPage) break;
+  }
+
+  return items;
+}
+
+async function remoteItemHash(search: AiSearchBinding, item: AiSearchItem): Promise<string> {
+  try {
+    const file = await search.items?.get(item.id).download();
+    if (!file?.body) return "";
+    const text = await new Response(file.body).text();
+    return sha256(text);
+  } catch (error) {
+    console.warn(`Could not download AI Search item ${item.key}`, error);
+    return "";
+  }
+}
+
+async function searchDocuments(): Promise<SearchDocument[]> {
+  const documents = await Promise.all(pages.map(async (page) => {
+    const body = renderSearchDocument(page);
+    return {
+      key: searchDocumentKey(page),
+      hash: await sha256(body),
+      body
+    };
+  }));
+  return documents.sort((a, b) => a.key.localeCompare(b.key));
+}
+
+async function searchContentHash(): Promise<string> {
+  const documents = await searchDocuments();
+  return sha256(JSON.stringify(documents.map((document) => [document.key, document.hash])));
+}
+
+function renderSearchDocument(page: Page): string {
+  return `---\ntitle: ${JSON.stringify(page.title)}\ndescription: ${JSON.stringify(page.description)}\npath: ${JSON.stringify(page.route)}\nsource: ${JSON.stringify(page.sourcePath)}\n---\n\n# ${page.title}\n\n${page.description ? `${page.description}\n\n` : ""}${page.markdown}\n`;
+}
+
+function searchDocumentKey(page: Page): string {
+  return `${page.route.replace(/^\/$/, "index").replace(/^\//, "").replace(/\//g, "__")}.md`;
+}
+
+async function sha256(value: string): Promise<string> {
+  const bytes = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function runConcurrent<T>(items: T[], concurrency: number, worker: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (next < items.length) {
+      const item = items[next];
+      next += 1;
+      await worker(item);
+    }
+  });
+  await Promise.all(workers);
 }
 
 function resultFromAiSearchChunk(chunk: AiSearchChunk) {
