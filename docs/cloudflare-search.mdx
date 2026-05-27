@@ -22,8 +22,14 @@ Docsflare uses the current Cloudflare AI Search Worker binding. The production `
 }
 ```
 
-## Indexing options
+## Indexing
 
-For production, run `docsflare search sync docs`. The command creates a built-in-storage AI Search instance and uploads generated Markdown documents from `.docsflare/search`.
+For production, deploy the Worker and trigger the binding-backed sync endpoint:
+
+```bash
+docsflare search sync --url https://example.com/docs
+```
+
+The command sends a `POST` request to `/api/search/sync`. It does not need a Cloudflare REST API token because indexing runs inside the deployed Worker through the `DOCS_SEARCH` binding.
 
 For local development or missing bindings, the Worker falls back to a static in-memory search over built pages. That fallback is intentionally simple and exists only so the UI remains usable before Cloudflare AI Search is configured.
