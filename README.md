@@ -259,16 +259,17 @@ Provision the AI Search instance and upload the generated search documents:
 docsflare search sync docs
 ```
 
-The command runs the content build, writes Markdown search documents to `.docsflare/search`, creates an AI Search instance named `docsflare-docs` when needed, removes existing indexed items, and uploads the current docs.
+The command runs the content build, writes Markdown search documents to `.docsflare/search`, creates an AI Search instance named `docsflare-docs` when needed, and incrementally updates the index. Unchanged documents are skipped, changed documents are replaced, new documents are uploaded, and removed documents are deleted.
 
 Useful environment variables:
 
 ```bash
-CLOUDFLARE_ACCOUNT_ID=...     # Cloudflare account ID
-CLOUDFLARE_API_TOKEN=...      # API token used by the provisioning script
+DOCSFLARE_CLOUDFLARE_ACCOUNT_ID=...  # Cloudflare account ID
+DOCSFLARE_CLOUDFLARE_API_TOKEN=...   # API token used by the provisioning script
 AI_SEARCH_INSTANCE=...        # Defaults to docsflare-docs
 AI_SEARCH_NAMESPACE=...       # Defaults to default
 AI_SEARCH_DOCS_DIR=...        # Defaults to .docsflare/search
+DOCSFLARE_SEARCH_CONCURRENCY=6 # Concurrent AI Search API operations
 ```
 
 You can also set the instance and namespace through CLI flags:

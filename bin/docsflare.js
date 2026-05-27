@@ -112,7 +112,7 @@ async function provisionSearch(contentDir, options, config) {
   if (instance) extraEnv.AI_SEARCH_INSTANCE = instance;
   if (namespace) extraEnv.AI_SEARCH_NAMESPACE = namespace;
 
-  await runScript("scripts/provision-ai-search.sh", { contentDir, inherit: true, extraEnv });
+  await runNodeScript("scripts/provision-ai-search.mjs", { contentDir, inherit: true, extraEnv });
 }
 
 function parseOptions(rawArgs) {
@@ -262,6 +262,19 @@ async function runTool(name, args, options) {
 
 async function runScript(scriptPath, options) {
   return run("bash", [path.join(packageRoot, scriptPath)], {
+    cwd: packageRoot,
+    inherit: options.inherit,
+    env: {
+      ...process.env,
+      DOCSFLARE_CONTENT_DIR: options.contentDir,
+      DOCSFLARE_OUTPUT_DIR: docsflareOutputDir(options.contentDir),
+      ...(options.extraEnv ?? {})
+    }
+  });
+}
+
+async function runNodeScript(scriptPath, options) {
+  return run("node", [path.join(packageRoot, scriptPath)], {
     cwd: packageRoot,
     inherit: options.inherit,
     env: {
