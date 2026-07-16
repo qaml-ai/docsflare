@@ -1579,6 +1579,10 @@ h1 { margin: 0; color: var(--text); font-size: 34px; line-height: 1.16; letter-s
 .content li { margin: 8px 0; padding-left: 3px; }
 .content a { color: var(--primary); text-decoration: none; font-weight: 500; }
 .content a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.content blockquote { position: relative; margin: 22px 0; border: 1px solid color-mix(in srgb, var(--primary) 20%, var(--line)); border-left: 4px solid color-mix(in srgb, var(--primary) 72%, var(--line)); border-radius: 4px 11px 11px 4px; background: color-mix(in srgb, var(--primary) 5%, var(--surface)); color: color-mix(in srgb, var(--text) 92%, var(--muted)); padding: 15px 18px 15px 19px; box-shadow: 0 1px 2px rgba(15, 23, 42, .025); }
+.content blockquote::before { content: "Prompt"; display: block; margin-bottom: 7px; color: var(--primary); font-size: 10.5px; line-height: 1; font-weight: 760; letter-spacing: .08em; text-transform: uppercase; }
+.content blockquote > :first-child { margin-top: 0; }
+.content blockquote > :last-child { margin-bottom: 0; }
 .content pre { overflow-x: auto; border: 1px solid color-mix(in srgb, var(--line) 70%, #000); border-radius: var(--radius); background: var(--code); color: #e5edf5; padding: 16px; line-height: 1.58; }
 .content code { border-radius: 4px; background: var(--surface-alt); color: var(--text); padding: 2px 5px; font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .content pre code { background: transparent; padding: 0; color: inherit; }
@@ -1847,6 +1851,7 @@ html[data-theme="dark"] .search-panel { background: rgba(0, 0, 0, .52); }
   .content > .mdx-card { min-height: 136px; }
   .content table { font-size: 12.5px; }
   .content th, .content td { padding: 10px 9px; }
+  .content blockquote { margin: 18px 0; padding: 14px 15px 14px 16px; }
   .pager a:last-child { text-align: left; }
   .search-panel { padding: 72px 12px 18px; }
   .search-dialog { width: 100%; max-width: 640px; }
