@@ -13,6 +13,14 @@ import * as jsxRuntime from "react/jsx-runtime";
 type MintConfig = {
   name?: string;
   basePath?: string;
+  /** Built-in Docsflare visual preset. */
+  theme?: string;
+  appearance?: {
+    default?: "system" | "light" | "dark";
+    strict?: boolean;
+  };
+  fonts?: FontsConfig;
+  background?: BackgroundConfig;
   logo?: string | { light?: string; dark?: string };
   favicon?: string;
   colors?: {
@@ -25,6 +33,28 @@ type MintConfig = {
     primary?: { type?: string; label?: string; href?: string };
   };
   navigation?: unknown;
+};
+
+type FontDefinition = {
+  family?: string;
+  weight?: string | number;
+  source?: string;
+  format?: "woff" | "woff2";
+};
+
+type FontsConfig = FontDefinition & {
+  heading?: FontDefinition;
+  body?: FontDefinition;
+  /** Accepted for code-focused sites while retaining the Mintlify-compatible shape. */
+  mono?: FontDefinition;
+};
+
+type ThemeValue<T> = T | { light?: T; dark?: T };
+
+type BackgroundConfig = {
+  decoration?: "gradient" | "grid" | "windows";
+  color?: ThemeValue<string>;
+  image?: ThemeValue<string>;
 };
 
 type PageRef = {
@@ -1211,9 +1241,68 @@ function contentTypeForPath(filePath: string): string | undefined {
       return "image/svg+xml";
     case ".ico":
       return "image/x-icon";
+    case ".woff":
+      return "font/woff";
+    case ".woff2":
+      return "font/woff2";
     default:
       return undefined;
   }
+}
+
+function rewriteRelativeCssUrls(css: string, stylesheetPath: string): string {
+  return css.replace(/url\(\s*(?:(["'])(.*?)\1|([^'"\)]*))\s*\)/gi, (match, quote: string | undefined, quoted: string | undefined, unquoted: string | undefined) => {
+    const value = (quoted ?? unquoted ?? "").trim();
+    if (!value || value.startsWith("/") || value.startsWith("//") || value.startsWith("#") || /^[a-z][a-z\d+.-]*:/i.test(value)) {
+      return match;
+    }
+
+    const suffixIndex = value.search(/[?#]/);
+    const pathname = suffixIndex === -1 ? value : value.slice(0, suffixIndex);
+    const suffix = suffixIndex === -1 ? "" : value.slice(suffixIndex);
+    const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(stylesheetPath), pathname.replace(/\\/g, "/")));
+    if (resolved === ".." || resolved.startsWith("../")) {
+      throw new Error(`Stylesheet ${stylesheetPath} references a URL outside the content directory: ${value}`);
+    }
+
+    const delimiter = quote ?? "";
+    return `url(${delimiter}/${resolved}${suffix}${delimiter})`;
+  });
+}
+
+/**
+ * Loads project-authored stylesheets in a stable order. Symlinks and generated or
+ * dependency directories are skipped so a content tree cannot make the build read
+ * CSS from outside its root.
+ */
+function discoverCustomCss(): string {
+  const stylesheets: Array<{ relative: string; css: string }> = [];
+  const generatedOrDependencyDirs = new Set([".git", ".wrangler", ".docsflare", "node_modules"]);
+
+  function visit(currentDir: string): void {
+    for (const entry of readdirSync(currentDir, { withFileTypes: true })) {
+      if (entry.isSymbolicLink()) continue;
+      const absolute = path.join(currentDir, entry.name);
+
+      if (entry.isDirectory()) {
+        if (!generatedOrDependencyDirs.has(entry.name)) visit(absolute);
+        continue;
+      }
+
+      if (!entry.isFile() || path.extname(entry.name).toLowerCase() !== ".css") continue;
+      const relative = path.relative(root, absolute).replace(/\\/g, "/");
+      if (relative.startsWith("../") || path.isAbsolute(relative)) {
+        throw new Error(`Refusing to read stylesheet outside the content directory: ${absolute}`);
+      }
+      stylesheets.push({ relative, css: rewriteRelativeCssUrls(readFileSync(absolute, "utf8"), relative) });
+    }
+  }
+
+  visit(root);
+  return stylesheets
+    .sort((a, b) => a.relative < b.relative ? -1 : a.relative > b.relative ? 1 : 0)
+    .map(({ relative, css }) => `/* ${relative.replace(/\*\//g, "* / ")} */\n${css}`)
+    .join("\n\n");
 }
 
 async function main() {
@@ -1309,6 +1398,10 @@ async function main() {
       logo: config.logo,
       favicon: config.favicon,
       colors: config.colors ?? {},
+      theme: config.theme,
+      appearance: config.appearance,
+      fonts: config.fonts,
+      background: config.background,
       navbar: {
         links: extractNavbarLinks(config),
         primary: config.navbar?.primary?.label && config.navbar?.primary?.href
@@ -1326,7 +1419,8 @@ async function main() {
     configFile: filename,
     nav: normalizedNav,
     pages,
-    assets: discoverAssets()
+    assets: discoverAssets(),
+    customCss: discoverCustomCss()
   };
 
   mkdirSync(generatedDir, { recursive: true });

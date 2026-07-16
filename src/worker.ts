@@ -11,6 +11,12 @@ type GeneratedContent = {
       light?: string;
       dark?: string;
     };
+    /** Built-in visual preset. Unknown values render with the mint preset. */
+    theme?: unknown;
+    /** Optional design-token overrides emitted by the content builder. */
+    appearance?: unknown;
+    fonts?: unknown;
+    background?: unknown;
     navbar?: {
       links?: Array<{ label: string; href: string }>;
       primary?: { label: string; href: string; type?: string };
@@ -39,6 +45,8 @@ type GeneratedContent = {
     contentType: string;
     base64: string;
   }>;
+  /** Project CSS, emitted verbatim after Docsflare's built-in stylesheet. */
+  customCss?: unknown;
 };
 
 export type SearchChunk = {
@@ -88,6 +96,49 @@ export type RuntimeContext = {
 
 
 const docsContent = content as unknown as GeneratedContent;
+
+const themePresets = {
+  mint: { radius: "10px", sidebar: "286px", content: "720px", fontWeight: "760", topbar: "104px", cardShadow: "0 1px 2px rgba(15,23,42,.025)" },
+  maple: { radius: "8px", sidebar: "280px", content: "740px", fontWeight: "740", topbar: "104px", cardShadow: "0 5px 18px rgba(120,53,15,.045)" },
+  palm: { radius: "14px", sidebar: "292px", content: "760px", fontWeight: "720", topbar: "108px", cardShadow: "0 8px 26px rgba(15,23,42,.06)" },
+  willow: { radius: "12px", sidebar: "280px", content: "700px", fontWeight: "700", topbar: "104px", cardShadow: "none" },
+  linden: { radius: "6px", sidebar: "264px", content: "740px", fontWeight: "740", topbar: "104px", cardShadow: "none" },
+  almond: { radius: "4px", sidebar: "276px", content: "680px", fontWeight: "680", topbar: "104px", cardShadow: "none" },
+  aspen: { radius: "8px", sidebar: "272px", content: "760px", fontWeight: "760", topbar: "104px", cardShadow: "0 1px 3px rgba(15,23,42,.04)" },
+  sequoia: { radius: "12px", sidebar: "300px", content: "780px", fontWeight: "800", topbar: "112px", cardShadow: "0 10px 30px rgba(15,23,42,.07)" },
+  luma: { radius: "16px", sidebar: "280px", content: "720px", fontWeight: "720", topbar: "108px", cardShadow: "0 12px 36px rgba(15,23,42,.07)" }
+} as const;
+
+type ThemePreset = keyof typeof themePresets;
+
+function configuredTheme(): ThemePreset {
+  const value = typeof docsContent.site.theme === "string" ? docsContent.site.theme.toLowerCase() : "mint";
+  return Object.prototype.hasOwnProperty.call(themePresets, value) ? value as ThemePreset : "mint";
+}
+
+function appearanceConfig(): { default: "system" | "light" | "dark"; strict: boolean } {
+  const value = recordFromUnknown(docsContent.site.appearance);
+  const requestedDefault = typeof value?.default === "string" ? value.default.toLowerCase() : "system";
+  return {
+    default: requestedDefault === "light" || requestedDefault === "dark" ? requestedDefault : "system",
+    strict: value?.strict === true
+  };
+}
+
+function initialThemeForRequest(cookie: string | null): "dark" | "light" | undefined {
+  const appearance = appearanceConfig();
+  if (!appearance.strict) {
+    const saved = themeFromCookie(cookie);
+    if (saved) return saved;
+  }
+  return appearance.default === "system" ? undefined : appearance.default;
+}
+
+function recordFromUnknown(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
 
 type Page = GeneratedContent["pages"][number];
 type Asset = GeneratedContent["assets"][number];
@@ -141,7 +192,7 @@ export async function handleRequest(
     }
 
     const page = pageByRoute.get(route) ?? (route === "/" ? pages[0] : undefined);
-    const initialTheme = themeFromCookie(request.headers.get("cookie"));
+    const initialTheme = initialThemeForRequest(request.headers.get("cookie"));
 
     if (!page) {
       const redirectTarget = legacyRedirects.get(route) ?? redirectForMiss(route);
@@ -378,11 +429,13 @@ function renderShell(page: Page | undefined, url: URL, status = 200, initialThem
   const description = page?.description ?? `${docsContent.site.name} documentation`;
   const seoMeta = renderSeoMeta(page, url, status, title, description, basePath);
   const themeAttribute = initialTheme ? ` data-theme="${initialTheme}"` : "";
-  const themeStyle = initialTheme ? ` style="background:${initialTheme === "dark" ? "#0d1117" : "#fbfcfd"};color-scheme:${initialTheme}"` : "";
+  const design = resolvedDesign();
+  const appearance = appearanceConfig();
+  const themeStyle = initialTheme ? ` style="background:${escapeHtml(initialTheme === "dark" ? design.darkBackground : design.lightBackground)};color-scheme:${initialTheme}"` : "";
   const currentPath = page?.route ?? url.pathname;
 
   return `<!doctype html>
-<html lang="en"${themeAttribute}${themeStyle}>
+<html lang="en" data-docsflare-theme="${configuredTheme()}"${themeAttribute}${themeStyle}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -391,19 +444,24 @@ function renderShell(page: Page | undefined, url: URL, status = 200, initialThem
   ${seoMeta}
   ${docsContent.site.favicon ? `<link rel="icon" href="${escapeHtml(docsContent.site.favicon)}">` : ""}
   <style>
-    html { background: #fbfcfd; color-scheme: light; }
-    html[data-theme="dark"] { background: #0d1117; color-scheme: dark; }
+    html { background: ${design.lightBackground}; color-scheme: light; }
+    html[data-theme="dark"] { background: ${design.darkBackground}; color-scheme: dark; }
     @media (prefers-color-scheme: dark) {
-      html:not([data-theme="light"]) { background: #0d1117; color-scheme: dark; }
+      html:not([data-theme="light"]) { background: ${design.darkBackground}; color-scheme: dark; }
     }
   </style>
   <script>
     (function () {
-      const darkBg = "#0d1117";
-      const lightBg = "#fbfcfd";
+      const darkBg = ${JSON.stringify(design.darkBackground)};
+      const lightBg = ${JSON.stringify(design.lightBackground)};
+      const appearanceDefault = ${JSON.stringify(appearance.default)};
+      const strictAppearance = ${JSON.stringify(appearance.strict)};
       let theme;
-      try { theme = localStorage.getItem("docsflare-theme"); } catch {}
-      theme = theme || document.cookie.match(/(?:^|; )docsflare-theme=(dark|light)/)?.[1];
+      if (!strictAppearance) {
+        try { theme = localStorage.getItem("docsflare-theme"); } catch {}
+        theme = theme || document.cookie.match(/(?:^|; )docsflare-theme=(dark|light)/)?.[1];
+      }
+      theme = theme || (appearanceDefault === "system" ? undefined : appearanceDefault);
       theme = theme || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
       theme = theme === "dark" ? "dark" : "light";
       document.documentElement.dataset.theme = theme;
@@ -412,31 +470,32 @@ function renderShell(page: Page | undefined, url: URL, status = 200, initialThem
       document.cookie = "docsflare-theme=" + theme + "; path=/; max-age=31536000; SameSite=Lax";
     })();
   </script>
-  <style>${css()}</style>
+  <style>${css(basePath)}</style>
+  ${renderCustomCss(basePath)}
 </head>
 <body>
-  <header class="topbar">
+  <header class="topbar" data-docsflare-component="topbar">
     <div class="topbar-inner">
       <a class="brand" href="${escapeHtml(routeWithBase("/", basePath))}">
         ${renderBrand(basePath)}
       </a>
       <div class="mobile-icons">
         <button class="mobile-search" type="button" data-open-search aria-label="Search"></button>
-        <button class="theme-toggle mobile-theme" type="button" data-theme-toggle aria-label="Switch to dark theme" title="Switch to dark theme">
+        ${appearance.strict ? "" : `<button class="theme-toggle mobile-theme" type="button" data-theme-toggle aria-label="Switch to dark theme" title="Switch to dark theme">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M21 14.5A8.5 8.5 0 0 1 9.5 3 7 7 0 1 0 21 14.5z"></path>
           </svg>
-        </button>
+        </button>`}
         <button class="mobile-menu" type="button" data-toggle-mobile-nav aria-controls="site-sidebar" aria-expanded="false" aria-label="Menu"><span></span></button>
       </div>
       <div class="top-actions">
         ${renderExternalLinks()}
         ${docsContent.site.navbar?.primary ? `<a class="primary-action" href="${escapeHtml(docsContent.site.navbar.primary.href)}">${escapeHtml(docsContent.site.navbar.primary.label)}</a>` : ""}
-        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Switch to dark theme" title="Switch to dark theme">
+        ${appearance.strict ? "" : `<button class="theme-toggle" type="button" data-theme-toggle aria-label="Switch to dark theme" title="Switch to dark theme">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M21 14.5A8.5 8.5 0 0 1 9.5 3 7 7 0 1 0 21 14.5z"></path>
           </svg>
-        </button>
+        </button>`}
       </div>
       <button class="search-trigger top-search" type="button" data-open-search>
         <span>Find docs</span>
@@ -448,7 +507,7 @@ function renderShell(page: Page | undefined, url: URL, status = 200, initialThem
   </header>
   <div class="app">
     <div class="mobile-nav-overlay" hidden data-mobile-nav-overlay data-close-mobile-nav></div>
-    <aside class="sidebar" id="site-sidebar">
+    <aside class="sidebar" id="site-sidebar" data-docsflare-component="sidebar">
       <button class="search-trigger" type="button" data-open-search>
         <span>Find docs</span>
         <kbd>/</kbd>
@@ -456,11 +515,11 @@ function renderShell(page: Page | undefined, url: URL, status = 200, initialThem
       ${renderSidebarAnchors(basePath)}
       <nav>${renderNav(currentPath, basePath)}</nav>
     </aside>
-    <main class="main">
+    <main class="main" data-docsflare-component="content">
       ${page ? renderArticle(page, basePath) : renderNotFound(status)}
     </main>
   </div>
-  <div class="search-panel" hidden data-search-panel>
+  <div class="search-panel" hidden data-search-panel data-docsflare-component="search">
     <div class="search-dialog">
       <div class="search-box">
         <input data-search-input placeholder="Search docs..." autocomplete="off">
@@ -470,7 +529,7 @@ function renderShell(page: Page | undefined, url: URL, status = 200, initialThem
     </div>
   </div>
   <button class="chat-launcher" type="button" data-open-chat>Ask docs</button>
-  <div class="chat-panel" hidden data-chat-panel>
+  <div class="chat-panel" hidden data-chat-panel data-docsflare-component="chat">
     <div class="chat-dialog">
       <div class="chat-header">
         <div>
@@ -599,13 +658,24 @@ function renderArticle(page: Page, basePath = ""): string {
       <h1>${escapeHtml(page.title)}</h1>
       ${page.description ? `<p class="description">${escapeHtml(page.description)}</p>` : ""}
     </header>`}
-    <div class="content">${prefixInternalHtmlLinks(isApiPage ? page.html : stripLeadingH1(page.html), basePath)}</div>
+    <div class="content">${addComponentHooks(prefixInternalHtmlLinks(isApiPage ? page.html : stripLeadingH1(page.html), basePath))}</div>
     <footer class="pager">
       ${previous ? `<a href="${routeWithBase(previous.route, basePath)}"><span>Previous</span>${escapeHtml(previous.title)}</a>` : "<span></span>"}
       ${next ? `<a href="${routeWithBase(next.route, basePath)}"><span>Next</span>${escapeHtml(next.title)}</a>` : ""}
     </footer>
   </article>
   ${renderTableOfContents(page)}`;
+}
+
+function addComponentHooks(html: string): string {
+  const withCards = addClassComponentHook(html, "mdx-card", "card");
+  const withCallouts = addClassComponentHook(withCards, "mdx-callout", "callout");
+  return withCallouts.replace(/<pre(?![^>]*\bdata-docsflare-component=)([^>]*)>/gi, '<pre data-docsflare-component="code"$1>');
+}
+
+function addClassComponentHook(html: string, className: string, component: string): string {
+  const pattern = new RegExp(`<([a-z][\\w-]*)(?=[^>]*\\bclass="[^"]*\\b${className}\\b[^"]*")(?![^>]*\\bdata-docsflare-component=)([^>]*)>`, "gi");
+  return html.replace(pattern, `<$1 data-docsflare-component="${component}"$2>`);
 }
 
 function renderNotFound(status: number): string {
@@ -757,9 +827,9 @@ function renderTableOfContents(page: Page): string {
     .filter((heading) => heading.title.length > 0)
     .slice(0, 12);
 
-  if (headings.length === 0) return `<aside class="toc" aria-label="On this page"></aside>`;
+  if (headings.length === 0) return `<aside class="toc" data-docsflare-component="toc" aria-label="On this page"></aside>`;
 
-  return `<aside class="toc" aria-label="On this page">
+  return `<aside class="toc" data-docsflare-component="toc" aria-label="On this page">
     <p>On this page</p>
     ${headings.map((heading) => `<a class="depth-${heading.depth}" href="#${escapeHtml(heading.id)}">${escapeHtml(heading.title)}</a>`).join("")}
   </aside>`;
@@ -865,6 +935,7 @@ function renderPageMarkdown(page: Page, origin: string, basePath = ""): string {
 }
 
 function clientScript(basePath = ""): string {
+  const design = resolvedDesign();
   return `(() => {
   const basePath = ${JSON.stringify(basePath)};
   const panel = document.querySelector('[data-search-panel]');
@@ -912,7 +983,7 @@ function clientScript(basePath = ""): string {
   function setTheme(theme) {
     const normalized = theme === 'dark' ? 'dark' : 'light';
     document.documentElement.dataset.theme = normalized;
-    document.documentElement.style.background = normalized === 'dark' ? '#0d1117' : '#fbfcfd';
+    document.documentElement.style.background = normalized === 'dark' ? ${JSON.stringify(design.darkBackground)} : ${JSON.stringify(design.lightBackground)};
     document.documentElement.style.colorScheme = normalized;
     try {
       localStorage.setItem('docsflare-theme', normalized);
@@ -1495,26 +1566,192 @@ function clientScript(basePath = ""): string {
 })();`;
 }
 
-function css(): string {
-  return `:root {
+type ResolvedDesign = {
+  lightBackground: string;
+  darkBackground: string;
+  lightPrimary: string;
+  darkPrimary: string;
+  primaryStrong: string;
+  lightBackgroundImage: string;
+  darkBackgroundImage: string;
+  bodyFont: string;
+  headingFont: string;
+  monoFont: string;
+};
+
+function resolvedDesign(basePath = ""): ResolvedDesign {
+  const fonts = recordFromUnknown(docsContent.site.fonts);
+  const background = recordFromUnknown(docsContent.site.background);
+  const backgroundColor = recordFromUnknown(background?.color);
+  const backgroundImage = recordFromUnknown(background?.image);
+  const bodyFont = fontValue(fonts?.body) ?? fontValue(fonts?.sans) ?? fontValue(docsContent.site.fonts);
+  const headingFont = fontValue(fonts?.heading) ?? bodyFont;
+  const monoFont = fontValue(fonts?.mono, "mono");
+  const primary = safeCssValue(docsContent.site.colors?.primary, "#0f766e");
+
+  return {
+    lightBackground: safeCssValue(backgroundColor?.light ?? background?.color ?? (typeof docsContent.site.background === "string" ? docsContent.site.background : undefined), "#fbfcfd"),
+    darkBackground: safeCssValue(backgroundColor?.dark ?? (typeof background?.color === "string" ? background.color : undefined), "#0d1117"),
+    lightPrimary: primary,
+    darkPrimary: safeCssValue(docsContent.site.colors?.light, primary),
+    primaryStrong: safeCssValue(docsContent.site.colors?.dark, primary),
+    lightBackgroundImage: backgroundImageCss(backgroundImage?.light ?? background?.image, background?.decoration, "light", basePath),
+    darkBackgroundImage: backgroundImageCss(backgroundImage?.dark ?? (typeof background?.image === "string" ? background.image : undefined), background?.decoration, "dark", basePath),
+    bodyFont: bodyFont ?? 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    headingFont: headingFont ?? bodyFont ?? (configuredTheme() === "almond"
+      ? 'ui-serif, Georgia, Cambria, "Times New Roman", serif'
+      : 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'),
+    monoFont: monoFont ?? "ui-monospace, SFMono-Regular, Menlo, monospace"
+  };
+}
+
+function backgroundImageCss(image: unknown, decoration: unknown, mode: "light" | "dark", basePath: string): string {
+  const source = optionalCssUrl(image);
+  if (source) return `url(${JSON.stringify(assetUrlWithBase(source, basePath))})`;
+  if (decoration === "grid") {
+    const line = mode === "dark" ? "rgba(255,255,255,.045)" : "rgba(15,23,42,.045)";
+    return `linear-gradient(${line} 1px, transparent 1px), linear-gradient(90deg, ${line} 1px, transparent 1px)`;
+  }
+  if (decoration === "windows") {
+    return mode === "dark"
+      ? "radial-gradient(circle at 12% 8%, rgba(45,212,191,.10), transparent 28%), radial-gradient(circle at 88% 22%, rgba(96,165,250,.08), transparent 24%)"
+      : "radial-gradient(circle at 12% 8%, rgba(20,184,166,.09), transparent 28%), radial-gradient(circle at 88% 22%, rgba(59,130,246,.07), transparent 24%)";
+  }
+  if (decoration === "gradient") {
+    return mode === "dark"
+      ? "radial-gradient(circle at 50% 0%, rgba(45,212,191,.09), transparent 34%)"
+      : "radial-gradient(circle at 50% 0%, rgba(20,184,166,.08), transparent 34%)";
+  }
+  return "none";
+}
+
+function fontValue(value: unknown, kind: "sans" | "mono" = "sans"): string | undefined {
+  const object = recordFromUnknown(value);
+  if (typeof value === "string") return optionalCssValue(value);
+  const family = optionalCssValue(object?.family);
+  return family ? `${JSON.stringify(family)}, ${kind === "mono" ? "ui-monospace, monospace" : "ui-sans-serif, system-ui, sans-serif"}` : undefined;
+}
+
+function fontFaceCss(basePath: string): string {
+  const fonts = recordFromUnknown(docsContent.site.fonts);
+  if (!fonts) return "";
+  const candidates = [fonts, recordFromUnknown(fonts.body), recordFromUnknown(fonts.heading), recordFromUnknown(fonts.mono)];
+  const seen = new Set<string>();
+  return candidates.flatMap((font) => {
+    if (!font) return [];
+    const family = optionalCssValue(font.family);
+    const source = optionalCssUrl(font.source);
+    if (!family || !source) return [];
+    const key = `${family}\0${source}`;
+    if (seen.has(key)) return [];
+    seen.add(key);
+    const format = font.format === "woff" || font.format === "woff2" ? ` format(${JSON.stringify(font.format)})` : "";
+    const weight = fontWeightValue(font.weight) ?? "100 900";
+    return [`@font-face { font-family: ${JSON.stringify(family)}; src: url(${JSON.stringify(assetUrlWithBase(source, basePath))})${format}; font-style: normal; font-weight: ${weight}; font-display: swap; }\n`];
+  }).join("");
+}
+
+function optionalCssValue(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed && trimmed.length <= 300 && !/[;{}<>]/.test(trimmed) ? trimmed : undefined;
+}
+
+function fontWeightValue(value: unknown): string | undefined {
+  if (typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 1000) return String(value);
+  return optionalCssValue(value);
+}
+
+function optionalCssUrl(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed && trimmed.length <= 2048 && !/[\n\r;{}<>]/.test(trimmed) ? trimmed : undefined;
+}
+
+function safeCssValue(value: unknown, fallback: string): string {
+  return optionalCssValue(value) ?? fallback;
+}
+
+function assetUrlWithBase(source: string, basePath: string): string {
+  return source.startsWith("//") ? source : routeWithBase(source, basePath);
+}
+
+function renderCustomCss(basePath = ""): string {
+  if (typeof docsContent.customCss !== "string" || !docsContent.customCss.trim()) return "";
+  // Keep project CSS last in the cascade while preventing an accidental style end tag
+  // from changing the surrounding generated document.
+  const cssText = docsContent.customCss
+    .replace(/url\(\s*(?:(["'])(\/(?!\/)[^"']*)\1|(\/(?!\/)[^)\s]*))\s*\)/gi, (_match, quote: string | undefined, quotedPath: string | undefined, barePath: string | undefined) => {
+      const path = quotedPath ?? barePath;
+      if (!path) return _match;
+      const rewritten = routeWithBase(path, basePath);
+      return `url(${quote ?? ""}${rewritten}${quote ?? ""})`;
+    })
+    .replace(/<\/style/gi, "<\\/style");
+  return `<style data-docsflare-custom-css>${cssText}</style>`;
+}
+
+function css(basePath = ""): string {
+  const design = resolvedDesign(basePath);
+  const preset = themePresets[configuredTheme()];
+  return `${fontFaceCss(basePath)}:root {
   color-scheme: light;
-  --bg: #fbfcfd; --surface: #ffffff; --surface-alt: #f3f6f8;
-  --text: #17202a; --muted: #687483; --line: #dfe5ea;
-  --primary: ${docsContent.site.colors.primary ?? "#0f766e"};
-  --code: #101923; --topbar-height: 104px; --sidebar-width: 286px; --toc-width: 220px; --radius: 10px;
+  --docsflare-color-primary: ${design.lightPrimary};
+  --docsflare-color-primary-strong: ${design.primaryStrong};
+  --docsflare-color-primary-dark: var(--docsflare-color-primary-strong);
+  --docsflare-color-background: ${design.lightBackground};
+  --docsflare-color-surface: #ffffff;
+  --docsflare-color-surface-muted: #f3f6f8;
+  --docsflare-color-text: #17202a;
+  --docsflare-color-text-muted: #687483;
+  --docsflare-color-border: #dfe5ea;
+  --docsflare-color-code-background: #101923;
+  --docsflare-background-image: ${design.lightBackgroundImage};
+  --docsflare-font-body: ${design.bodyFont};
+  --docsflare-font-heading: ${design.headingFont};
+  --docsflare-font-mono: ${design.monoFont};
+  --docsflare-space-1: 4px; --docsflare-space-2: 8px; --docsflare-space-3: 12px;
+  --docsflare-space-4: 16px; --docsflare-space-5: 24px; --docsflare-space-6: 32px;
+  --docsflare-radius-sm: ${Number.parseFloat(preset.radius) * .6}px;
+  --docsflare-radius-md: ${preset.radius};
+  --docsflare-radius-lg: ${Number.parseFloat(preset.radius) * 1.2}px;
+  --docsflare-radius-pill: 999px;
+  --docsflare-radius: var(--docsflare-radius-md);
+  --docsflare-radius-small: var(--docsflare-radius-sm);
+  --docsflare-content-width: ${preset.content};
+  --docsflare-sidebar-width: ${preset.sidebar};
+  --docsflare-space-page: 36px;
+  --docsflare-color-muted: var(--docsflare-color-text-muted);
+  --docsflare-component-background: var(--docsflare-color-surface);
+  --docsflare-component-background-hover: var(--docsflare-color-surface-muted);
+  --docsflare-component-border: var(--docsflare-color-border);
+  --docsflare-component-shadow: ${preset.cardShadow};
+  --docsflare-heading-weight: ${preset.fontWeight};
+  --bg: var(--docsflare-color-background); --surface: var(--docsflare-color-surface); --surface-alt: var(--docsflare-color-surface-muted);
+  --text: var(--docsflare-color-text); --muted: var(--docsflare-color-muted); --line: var(--docsflare-color-border);
+  --primary: var(--docsflare-color-primary); --code: var(--docsflare-color-code-background);
+  --topbar-height: ${preset.topbar}; --sidebar-width: var(--docsflare-sidebar-width); --toc-width: 220px; --radius: var(--docsflare-radius);
 }
 html[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #0d1117; --surface: #121820; --surface-alt: #18212b;
-  --text: #e7edf3; --muted: #9aa8b7; --line: #26313d; --code: #070b10;
+  --docsflare-color-primary: ${design.darkPrimary};
+  --docsflare-color-background: ${design.darkBackground};
+  --docsflare-color-surface: #121820; --docsflare-color-surface-muted: #18212b;
+  --docsflare-color-text: #e7edf3; --docsflare-color-text-muted: #9aa8b7;
+  --docsflare-color-border: #26313d; --docsflare-color-code-background: #070b10;
+  --docsflare-background-image: ${design.darkBackgroundImage};
+  --docsflare-component-shadow: 0 1px 2px rgba(0, 0, 0, .18);
 }
 * { box-sizing: border-box; }
 html { background: var(--bg); scroll-padding-top: calc(var(--topbar-height) + 24px); }
-body { margin: 0; background: var(--bg); color: var(--text); font: 14.5px/1.72 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+body { margin: 0; background-color: var(--bg); background-image: var(--docsflare-background-image); background-size: ${recordFromUnknown(docsContent.site.background)?.decoration === "grid" ? "24px 24px" : "cover"}; background-attachment: fixed; color: var(--text); font: 14.5px/1.72 var(--docsflare-font-body); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
 a { color: inherit; text-decoration: none; }
 
+h1, h2, h3, h4, h5, h6 { font-family: var(--docsflare-font-heading); }
+code, pre, kbd { font-family: var(--docsflare-font-mono); }
+
 .topbar { position: sticky; top: 0; z-index: 20; height: var(--topbar-height); border-bottom: 1px solid var(--line); background: var(--surface); }
-.topbar-inner, .top-tabs, .app { max-width: 1380px; margin: 0 auto; padding-inline: 36px; }
+.topbar-inner, .top-tabs, .app { max-width: 1380px; margin: 0 auto; padding-inline: var(--docsflare-space-page); }
 .topbar-inner { position: relative; height: 60px; display: grid; grid-template-columns: 240px minmax(0, 1fr) 240px; align-items: center; gap: 18px; }
 .brand, .top-actions, .mobile-icons, .mobile-crumb, .search-trigger, .chat-header, .chat-form, .search-loading { display: flex; align-items: center; }
 .brand { min-width: 0; gap: 10px; color: var(--text); font-size: 14px; font-weight: 680; }
@@ -1535,7 +1772,7 @@ html[data-theme="dark"] .brand-logo-dark { display: block; }
 .top-actions { grid-column: 3; justify-content: flex-end; gap: 16px; }
 .top-link { color: var(--muted); font-size: 13px; font-weight: 570; white-space: nowrap; }
 .top-link:hover { color: var(--primary); }
-.primary-action { height: 32px; display: inline-flex; align-items: center; border: 1px solid var(--primary); border-radius: 6px; background: var(--primary); color: white; padding: 0 12px; font-size: 13px; font-weight: 650; white-space: nowrap; }
+.primary-action { height: 32px; display: inline-flex; align-items: center; border: 1px solid var(--docsflare-color-primary-strong); border-radius: 6px; background: var(--docsflare-color-primary-strong); color: white; padding: 0 12px; font-size: 13px; font-weight: 650; white-space: nowrap; }
 .theme-toggle { width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; }
 .theme-toggle svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .mobile-icons, .mobile-crumb { display: none; }
@@ -1543,7 +1780,7 @@ html[data-theme="dark"] .brand-logo-dark { display: block; }
 .search-trigger, .mdx-card, .mdx-accordion, .mdx-expandable, .mdx-tabs, .mdx-code-group, .mdx-frame, .mdx-panel, .mdx-field, .mdx-example, .mdx-prompt, .mdx-tree, .pager a, .search-dialog, .chat-dialog, .chat-message.assistant, .chat-form textarea, kbd { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
 .search-trigger { width: 100%; height: 34px; justify-content: space-between; color: var(--muted); padding: 0 10px; font: inherit; cursor: pointer; }
 .top-search { position: absolute; left: 50%; top: 50%; width: min(420px, calc(100% - 560px)); height: 36px; background: var(--bg); font-size: 13px; transform: translate(-50%, -50%); }
-kbd { border-radius: 4px; padding: 0 5px; color: var(--muted); font: 10.5px ui-monospace, SFMono-Regular, Menlo, monospace; }
+kbd { border-radius: 4px; padding: 0 5px; color: var(--muted); font: 10.5px var(--docsflare-font-mono); }
 
 .app { min-height: calc(100vh - var(--topbar-height)); display: grid; grid-template-columns: var(--sidebar-width) minmax(0, 1fr); }
 .mobile-nav-overlay { display: none; }
@@ -1561,14 +1798,14 @@ kbd { border-radius: 4px; padding: 0 5px; color: var(--muted); font: 10.5px ui-m
 .sidebar nav .api-nav-section h2 { text-transform: none; font-size: 13px; }
 .sidebar nav a { display: block; max-width: 100%; border-radius: 7px; color: var(--muted); font-size: 13.5px; line-height: 1.45; padding: 6px 10px; overflow-wrap: anywhere; transition: background-color .15s ease, color .15s ease; }
 .sidebar nav a.api-operation-link { display: grid; grid-template-columns: 54px minmax(0, 1fr); align-items: baseline; column-gap: 8px; }
-.api-nav-method { border-radius: 5px; padding: 3px 5px; color: white; text-align: center; white-space: nowrap; font: 700 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.api-nav-method { border-radius: 5px; padding: 3px 5px; color: white; text-align: center; white-space: nowrap; font: 700 10px/1 var(--docsflare-font-mono); }
 .sidebar nav a:hover { background: var(--surface-alt); color: var(--text); }
 .sidebar nav a.active { background: color-mix(in srgb, var(--primary) 10%, var(--surface)); color: var(--primary); font-weight: 690; }
 
-.main { min-width: 0; display: grid; grid-template-columns: minmax(0, 720px) var(--toc-width); gap: 72px; padding: 50px 0 96px 44px; }
-.doc { min-width: 0; max-width: 720px; }
+.main { min-width: 0; display: grid; grid-template-columns: minmax(0, var(--docsflare-content-width)) var(--toc-width); gap: 72px; padding: 50px 0 96px 44px; }
+.doc { min-width: 0; max-width: var(--docsflare-content-width); }
 .eyebrow { margin: 0 0 10px; color: var(--primary); font-size: 13px; font-weight: 700; }
-h1 { margin: 0; color: var(--text); font-size: 34px; line-height: 1.16; letter-spacing: -.025em; font-weight: 760; }
+h1 { margin: 0; color: var(--text); font-size: 34px; line-height: 1.16; letter-spacing: -.025em; font-weight: var(--docsflare-heading-weight); }
 .description { margin: 13px 0 0; max-width: 640px; color: var(--muted); font-size: 17.5px; line-height: 1.6; }
 .content { margin-top: 38px; color: color-mix(in srgb, var(--text) 88%, var(--muted)); font-size: 15px; line-height: 1.72; }
 .content h2, .content h3 { color: var(--text); letter-spacing: 0; }
@@ -1584,7 +1821,7 @@ h1 { margin: 0; color: var(--text); font-size: 34px; line-height: 1.16; letter-s
 .content blockquote > :first-child { margin-top: 0; }
 .content blockquote > :last-child { margin-bottom: 0; }
 .content pre { overflow-x: auto; border: 1px solid color-mix(in srgb, var(--line) 70%, #000); border-radius: var(--radius); background: var(--code); color: #e5edf5; padding: 16px; line-height: 1.58; }
-.content code { border-radius: 4px; background: var(--surface-alt); color: var(--text); padding: 2px 5px; font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.content code { border-radius: 4px; background: var(--surface-alt); color: var(--text); padding: 2px 5px; font: 12.5px var(--docsflare-font-mono); }
 .content pre code { background: transparent; padding: 0; color: inherit; }
 .content table { display: block; width: 100%; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 26px 0; font-size: 13.5px; line-height: 1.48; scrollbar-width: thin; }
 .content th, .content td { border-bottom: 1px solid var(--line); padding: 11px 10px; text-align: left; vertical-align: top; }
@@ -1598,7 +1835,7 @@ h1 { margin: 0; color: var(--text); font-size: 34px; line-height: 1.16; letter-s
 .api-description { margin: 0 0 24px; color: var(--muted); font-size: 16px; line-height: 1.6; }
 .api-route-row { display: flex; align-items: center; gap: 10px; overflow-x: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); padding: 10px 12px; }
 .api-route-row code { flex: 1 1 auto; min-width: 0; overflow-x: auto; background: transparent; padding: 0; color: var(--text); font-size: 13px; }
-.api-method { flex: 0 0 auto; min-width: 56px; border-radius: 5px; padding: 5px 8px; color: white; text-align: center; font: 700 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.api-method { flex: 0 0 auto; min-width: 56px; border-radius: 5px; padding: 5px 8px; color: white; text-align: center; font: 700 11px/1 var(--docsflare-font-mono); }
 .api-method-get { background: #2563eb; }
 .api-method-post { background: #0f766e; }
 .api-method-put, .api-method-patch { background: #9333ea; }
@@ -1628,7 +1865,7 @@ h1 { margin: 0; color: var(--text); font-size: 34px; line-height: 1.16; letter-s
 .api-example-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid rgba(255, 255, 255, .09); padding: 8px 10px 8px 14px; color: #aebaca; font-size: 12px; font-weight: 700; }
 .api-example-block pre { max-height: 420px; margin: 0; overflow: auto; border: 0; border-radius: 0; background: transparent; padding: 14px; font-size: 12px; line-height: 1.55; }
 .api-example-block code { background: transparent; padding: 0; color: inherit; }
-.copy-button { flex: 0 0 auto; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-alt); color: var(--muted); padding: 5px 9px; font: 700 11px/1 ui-sans-serif, system-ui, sans-serif; cursor: pointer; }
+.copy-button { flex: 0 0 auto; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-alt); color: var(--muted); padding: 5px 9px; font: 700 11px/1 var(--docsflare-font-body); cursor: pointer; }
 .copy-button:hover { border-color: color-mix(in srgb, var(--primary) 35%, var(--line)); color: var(--text); }
 .copy-button:focus-visible { outline: 2px solid color-mix(in srgb, var(--primary) 26%, transparent); outline-offset: 2px; }
 .copy-button.copied { border-color: color-mix(in srgb, var(--primary) 45%, var(--line)); color: var(--primary); }
@@ -1639,7 +1876,7 @@ h1 { margin: 0; color: var(--text); font-size: 34px; line-height: 1.16; letter-s
 .sr-only { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 .mdx-card-group, .mdx-columns, .mdx-tile-group { display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: 14px; margin: 26px 0; }
 .mdx-card, .mdx-accordion, .mdx-expandable, .mdx-frame, .mdx-panel, .mdx-prompt, .mdx-tree, .pager a { padding: 14px; }
-.mdx-card { position: relative; min-height: 166px; display: block; padding: 20px; border-radius: 12px; text-decoration: none !important; box-shadow: 0 1px 2px rgba(15, 23, 42, .025); transition: border-color .15s ease, background-color .15s ease, box-shadow .15s ease, transform .15s ease; }
+.mdx-card { position: relative; min-height: 166px; display: block; padding: 20px; border-radius: var(--docsflare-radius-lg); text-decoration: none !important; box-shadow: var(--docsflare-component-shadow); transition: border-color .15s ease, background-color .15s ease, box-shadow .15s ease, transform .15s ease; }
 .mdx-card-group[data-cols="1"] .mdx-card, .content > .mdx-card { min-height: 112px; }
 .mdx-card[href]::after { content: ""; position: absolute; right: 18px; top: 20px; width: 7px; height: 7px; border-top: 1.5px solid var(--muted); border-right: 1.5px solid var(--muted); transform: rotate(45deg); }
 .mdx-card:hover { border-color: color-mix(in srgb, var(--primary) 38%, var(--line)); background: color-mix(in srgb, var(--primary) 3%, var(--surface)); box-shadow: 0 8px 24px rgba(15, 23, 42, .07); transform: translateY(-1px); }
@@ -1673,7 +1910,7 @@ h1 { margin: 0; color: var(--text); font-size: 34px; line-height: 1.16; letter-s
 .mdx-tabs { overflow: hidden; margin: 20px 0; }
 .mdx-tab-list { display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--line); background: var(--surface-alt); padding: 7px 8px 0; scrollbar-width: none; }
 .mdx-tab-list::-webkit-scrollbar { display: none; }
-.mdx-tab-button { position: relative; flex: 0 0 auto; border: 0; background: transparent; color: var(--muted); padding: 8px 11px 10px; font: 650 12.5px/1.2 ui-sans-serif, system-ui, sans-serif; cursor: pointer; }
+.mdx-tab-button { position: relative; flex: 0 0 auto; border: 0; background: transparent; color: var(--muted); padding: 8px 11px 10px; font: 650 12.5px/1.2 var(--docsflare-font-body); cursor: pointer; }
 .mdx-tab-button::after { content: ""; position: absolute; left: 8px; right: 8px; bottom: 0; height: 2px; border-radius: 2px 2px 0 0; background: transparent; }
 .mdx-tab-button:hover, .mdx-tab-button.active { color: var(--text); }
 .mdx-tab-button.active::after { background: var(--primary); }
@@ -1719,7 +1956,7 @@ h1 { margin: 0; color: var(--text); font-size: 34px; line-height: 1.16; letter-s
 .mdx-field { margin: 12px 0; padding: 14px 16px; }
 .mdx-field-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .mdx-field-heading > code { background: transparent; padding: 0; color: var(--text); font-weight: 700; }
-.mdx-field-type { color: var(--primary); font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.mdx-field-type { color: var(--primary); font: 12px var(--docsflare-font-mono); }
 .mdx-field.deprecated { opacity: .72; }
 .mdx-field.deprecated .mdx-field-heading > code { text-decoration: line-through; }
 .mdx-field-default { margin-top: 6px; color: var(--muted); font-size: 12px; }
@@ -1728,7 +1965,7 @@ h1 { margin: 0; color: var(--text); font-size: 34px; line-height: 1.16; letter-s
 .mdx-example { margin: 20px 0; overflow: hidden; }
 .mdx-example > strong { display: block; border-bottom: 1px solid var(--line); background: var(--surface-alt); padding: 9px 12px; color: var(--muted); font-size: 12px; }
 .mdx-example > .mdx-code-group { margin: -1px; border-radius: 0; }
-.mdx-tree { margin: 20px 0; font: 13px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.mdx-tree { margin: 20px 0; font: 13px/1.7 var(--docsflare-font-mono); }
 .mdx-tree ul { margin: 0; padding-left: 20px; list-style: none; }
 .mdx-tree > ul { padding-left: 0; }
 .mdx-tree li { margin: 2px 0; padding-left: 0; }

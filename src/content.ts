@@ -2,9 +2,14 @@
 export const content = {
   site: {
     name: "Docsflare",
-    colors: {}
+    colors: {},
+    theme: undefined,
+    appearance: undefined,
+    fonts: undefined,
+    background: undefined
   },
   nav: [],
   pages: [],
-  assets: []
+  assets: [],
+  customCss: ""
 } as const;

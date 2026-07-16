@@ -1,0 +1,224 @@
+---
+title: Themes and custom CSS
+description: Configure a built-in theme, color modes, fonts, backgrounds, and site-wide CSS.
+---
+
+# Themes and custom CSS
+
+Docsflare supports Mintlify-style appearance settings and automatically bundles project CSS. Start with a built-in theme and a few brand tokens. Add CSS only where you need a deliberate override.
+
+## Choose a theme
+
+Set `theme` at the top level of `docs.json` or `mint.json`:
+
+```json
+{
+  "theme": "mint",
+  "name": "Acme Docs",
+  "colors": {
+    "primary": "#0f766e",
+    "light": "#14b8a6",
+    "dark": "#134e4a"
+  }
+}
+```
+
+Docsflare recognizes the current [Mintlify theme names](https://www.mintlify.com/docs/customize/themes):
+
+- `mint`
+- `maple`
+- `palm`
+- `willow`
+- `linden`
+- `almond`
+- `aspen`
+- `sequoia`
+- `luma`
+
+These names are configuration-compatible presets, not pixel-for-pixel copies of Mintlify. Docsflare owns their implementation so that the same generated site looks consistent on Cloudflare Workers, Node.js, and other Fetch-compatible runtimes. An omitted or unrecognized value uses the default `mint` preset.
+
+## Configure colors
+
+The three color fields are accents, not page backgrounds:
+
+- `colors.primary` is the main light-mode accent.
+- `colors.light` is the main dark-mode accent, where a lighter value usually has better contrast.
+- `colors.dark` is the stronger brand shade used for controls and hover states.
+
+Use valid CSS colors. Hex values are the most portable choice.
+
+```json
+{
+  "colors": {
+    "primary": "#2563eb",
+    "light": "#60a5fa",
+    "dark": "#1d4ed8"
+  }
+}
+```
+
+## Set the initial color mode
+
+`appearance.default` chooses the initial mode. `appearance.strict` locks the site to that choice and removes the theme toggle.
+
+```json
+{
+  "appearance": {
+    "default": "system",
+    "strict": false
+  }
+}
+```
+
+`default` accepts `system`, `light`, or `dark`. With `system`, Docsflare follows the visitor's operating-system preference until they choose a mode. When `strict` is `true`, use `light` or `dark`; `system` remains responsive to the operating-system preference but is not manually switchable.
+
+## Configure fonts
+
+Use `fonts` for one family everywhere, or provide `heading` and `body` definitions separately:
+
+```json
+{
+  "fonts": {
+    "heading": {
+      "family": "Sora",
+      "weight": "600 800"
+    },
+    "body": {
+      "family": "Inter",
+      "weight": "400 700"
+    }
+  }
+}
+```
+
+A family-only definition uses the named installed font with system fallbacks. To ship a font with the docs, place the file inside the content directory and set `source` and `format`:
+
+```json
+{
+  "fonts": {
+    "family": "Acme Sans",
+    "source": "/fonts/acme-sans.woff2",
+    "format": "woff2",
+    "weight": "100 900"
+  }
+}
+```
+
+Local font files are copied as static assets. `format` accepts `woff` or `woff2`. A remote HTTPS `source` also works, subject to the remote server's CORS policy. Docsflare does not contact Google Fonts during the build; if you want a hosted font, provide its stylesheet through custom CSS or self-host the font for predictable privacy and performance.
+
+## Add a background
+
+`background` can add a restrained decoration and mode-specific color or image:
+
+```json
+{
+  "background": {
+    "decoration": "grid",
+    "color": {
+      "light": "#fbfcfd",
+      "dark": "#0d1117"
+    },
+    "image": {
+      "light": "/background-light.svg",
+      "dark": "/background-dark.svg"
+    }
+  }
+}
+```
+
+`decoration` accepts `gradient`, `grid`, or `windows`. `color` and `image` may be a single value for both modes or an object with `light` and `dark` values. Local images must live inside the content directory and are served under the configured base path.
+
+## Add site-wide CSS
+
+Place any `.css` file anywhere inside the content directory. No import or config entry is required. This follows [Mintlify's global custom CSS convention](https://www.mintlify.com/docs/customize/custom-scripts):
+
+```text
+docs/
+├── docs.json
+├── custom.css
+├── styles/
+│   ├── components.css
+│   └── typography.css
+└── introduction.mdx
+```
+
+Docsflare recursively finds CSS files, sorts them by content-relative path, and appends them after the built-in and theme styles. Later files win when selectors have equal specificity. Use filenames or numbered directories when their order matters.
+
+For example, `docs/custom.css` can change the content width and card treatment:
+
+```css
+:root {
+  --docsflare-content-width: 760px;
+  --docsflare-radius: 14px;
+}
+
+[data-docsflare-component="card"] {
+  box-shadow: 0 12px 32px rgb(15 23 42 / 8%);
+}
+
+html[data-theme="dark"] [data-docsflare-component="card"] {
+  box-shadow: none;
+}
+```
+
+CSS is bundled into the generated application. Re-run `docsflare build` after changing it. Do not put secrets in CSS: like every browser asset, it is public.
+
+## Stable customization contract
+
+Prefer the `--docsflare-*` properties and `data-docsflare-component` attributes below. They are the supported customization surface; internal class names may change.
+
+Common properties include:
+
+```css
+:root {
+  --docsflare-color-primary: #0f766e;
+  --docsflare-color-background: #fbfcfd;
+  --docsflare-color-surface: #ffffff;
+  --docsflare-color-text: #17202a;
+  --docsflare-color-muted: #687483;
+  --docsflare-color-border: #dfe5ea;
+  --docsflare-font-body: ui-sans-serif, system-ui, sans-serif;
+  --docsflare-font-heading: var(--docsflare-font-body);
+  --docsflare-radius: 10px;
+  --docsflare-radius-small: 6px;
+  --docsflare-content-width: 720px;
+  --docsflare-sidebar-width: 286px;
+  --docsflare-space-page: 36px;
+}
+```
+
+Component hooks include `topbar`, `sidebar`, `content`, `toc`, `card`, `callout`, `code`, `search`, and `chat`. Target them with an attribute selector:
+
+```css
+[data-docsflare-component="sidebar"] {
+  font-size: 0.95rem;
+}
+```
+
+## Style precedence
+
+Docsflare applies styles in this order:
+
+1. Base layout and component styles
+2. The selected theme preset
+3. Values derived from `colors`, `fonts`, `appearance`, and `background`
+4. Project `.css` files in sorted path order
+
+This keeps theme switching predictable while leaving project CSS in control.
+
+## Verify a customization
+
+Run the local server and check both color modes and a narrow viewport:
+
+```bash
+docsflare dev docs
+```
+
+Before deployment, rebuild and run the content checks:
+
+```bash
+docsflare doctor docs
+docsflare build docs
+```
+
+If a rule does not apply, confirm that the file ends in `.css`, lives inside the selected content directory, and is not being overridden by a later stylesheet. If a local font or image does not load, use a root-relative path and confirm that the file exists under the content directory.
