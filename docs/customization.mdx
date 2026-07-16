@@ -1,19 +1,16 @@
 ---
-title: Themes and custom CSS
-description: Configure a built-in theme, color modes, fonts, backgrounds, and site-wide CSS.
+title: Appearance and custom CSS
+description: Configure color modes, fonts, backgrounds, and site-wide CSS.
 ---
 
-# Themes and custom CSS
+# Appearance and custom CSS
 
-Docsflare supports Mintlify-style appearance settings and automatically bundles project CSS. Start with a built-in theme and a few brand tokens. Add CSS only where you need a deliberate override.
+Docsflare provides one carefully maintained layout with Mintlify-style appearance settings and automatically bundled project CSS. Start with a few brand tokens. Add CSS only where you need a deliberate override.
 
-## Choose a theme
-
-Set `theme` at the top level of `docs.json` or `mint.json`:
+The common appearance configuration stays small:
 
 ```json
 {
-  "theme": "mint",
   "name": "Acme Docs",
   "colors": {
     "primary": "#0f766e",
@@ -22,34 +19,6 @@ Set `theme` at the top level of `docs.json` or `mint.json`:
   }
 }
 ```
-
-Docsflare recognizes the current [Mintlify theme names](https://www.mintlify.com/docs/customize/themes):
-
-- `mint`
-- `maple`
-- `palm`
-- `willow`
-- `linden`
-- `almond`
-- `aspen`
-- `sequoia`
-- `luma`
-
-These names are configuration-compatible presets, not pixel-for-pixel copies of Mintlify. Docsflare owns their implementation so that the same generated site looks consistent on Cloudflare Workers, Node.js, and other Fetch-compatible runtimes. An omitted or unrecognized value uses the default `mint` preset.
-
-Each preset has a deliberately different visual direction:
-
-| Theme | Direction |
-| --- | --- |
-| `mint` | Balanced, neutral documentation layout |
-| `maple` | Warm surfaces and stronger section dividers |
-| `palm` | Spacious, rounded navigation and components |
-| `willow` | Quiet, minimal, border-light reading experience |
-| `linden` | Dense, compact, information-heavy layout |
-| `almond` | Editorial typography and paper-like surfaces |
-| `aspen` | Crisp, cool, strongly outlined interface |
-| `sequoia` | Bold forest navigation and high-impact headings |
-| `luma` | Translucent glass surfaces over a luminous gradient |
 
 ## Configure colors
 
@@ -156,7 +125,7 @@ docs/
 └── introduction.mdx
 ```
 
-Docsflare recursively finds CSS files, sorts them by content-relative path, and appends them after the built-in and theme styles. Later files win when selectors have equal specificity. Use filenames or numbered directories when their order matters.
+Docsflare recursively finds CSS files, sorts them by content-relative path, and appends them after the built-in styles. Later files win when selectors have equal specificity. Use filenames or numbered directories when their order matters.
 
 For example, `docs/custom.css` can change the content width and card treatment:
 
@@ -214,11 +183,10 @@ Component hooks include `topbar`, `sidebar`, `content`, `toc`, `card`, `callout`
 Docsflare applies styles in this order:
 
 1. Base layout and component styles
-2. The selected theme preset
-3. Values derived from `colors`, `fonts`, `appearance`, and `background`
-4. Project `.css` files in sorted path order
+2. Values derived from `colors`, `fonts`, `appearance`, and `background`
+3. Project `.css` files in sorted path order
 
-This keeps theme switching predictable while leaving project CSS in control.
+This keeps the built-in design predictable while leaving project CSS in control.
 
 ## Verify a customization
 

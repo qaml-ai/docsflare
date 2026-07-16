@@ -11,8 +11,6 @@ type GeneratedContent = {
       light?: string;
       dark?: string;
     };
-    /** Built-in visual preset. Unknown values render with the mint preset. */
-    theme?: unknown;
     /** Optional design-token overrides emitted by the content builder. */
     appearance?: unknown;
     fonts?: unknown;
@@ -96,25 +94,6 @@ export type RuntimeContext = {
 
 
 const docsContent = content as unknown as GeneratedContent;
-
-const themePresets = {
-  mint: { radius: "10px", sidebar: "286px", content: "720px", fontWeight: "760", topbar: "104px", cardShadow: "0 1px 2px rgba(15,23,42,.025)" },
-  maple: { radius: "8px", sidebar: "280px", content: "740px", fontWeight: "740", topbar: "104px", cardShadow: "0 5px 18px rgba(120,53,15,.045)" },
-  palm: { radius: "14px", sidebar: "292px", content: "760px", fontWeight: "720", topbar: "108px", cardShadow: "0 8px 26px rgba(15,23,42,.06)" },
-  willow: { radius: "12px", sidebar: "280px", content: "700px", fontWeight: "700", topbar: "104px", cardShadow: "none" },
-  linden: { radius: "6px", sidebar: "264px", content: "740px", fontWeight: "740", topbar: "104px", cardShadow: "none" },
-  almond: { radius: "4px", sidebar: "276px", content: "680px", fontWeight: "680", topbar: "104px", cardShadow: "none" },
-  aspen: { radius: "8px", sidebar: "272px", content: "760px", fontWeight: "760", topbar: "104px", cardShadow: "0 1px 3px rgba(15,23,42,.04)" },
-  sequoia: { radius: "12px", sidebar: "300px", content: "780px", fontWeight: "800", topbar: "112px", cardShadow: "0 10px 30px rgba(15,23,42,.07)" },
-  luma: { radius: "16px", sidebar: "280px", content: "720px", fontWeight: "720", topbar: "108px", cardShadow: "0 12px 36px rgba(15,23,42,.07)" }
-} as const;
-
-type ThemePreset = keyof typeof themePresets;
-
-function configuredTheme(): ThemePreset {
-  const value = typeof docsContent.site.theme === "string" ? docsContent.site.theme.toLowerCase() : "mint";
-  return Object.prototype.hasOwnProperty.call(themePresets, value) ? value as ThemePreset : "mint";
-}
 
 function appearanceConfig(): { default: "system" | "light" | "dark"; strict: boolean } {
   const value = recordFromUnknown(docsContent.site.appearance);
@@ -435,7 +414,7 @@ function renderShell(page: Page | undefined, url: URL, status = 200, initialThem
   const currentPath = page?.route ?? url.pathname;
 
   return `<!doctype html>
-<html lang="en" data-docsflare-theme="${configuredTheme()}"${themeAttribute}${themeStyle}>
+<html lang="en"${themeAttribute}${themeStyle}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -1598,9 +1577,7 @@ function resolvedDesign(basePath = ""): ResolvedDesign {
     lightBackgroundImage: backgroundImageCss(backgroundImage?.light ?? background?.image, background?.decoration, "light", basePath),
     darkBackgroundImage: backgroundImageCss(backgroundImage?.dark ?? (typeof background?.image === "string" ? background.image : undefined), background?.decoration, "dark", basePath),
     bodyFont: bodyFont ?? 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-    headingFont: headingFont ?? bodyFont ?? (configuredTheme() === "almond"
-      ? 'ui-serif, Georgia, Cambria, "Times New Roman", serif'
-      : 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'),
+    headingFont: headingFont ?? bodyFont ?? 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
     monoFont: monoFont ?? "ui-monospace, SFMono-Regular, Menlo, monospace"
   };
 }
@@ -1693,7 +1670,6 @@ function renderCustomCss(basePath = ""): string {
 
 function css(basePath = ""): string {
   const design = resolvedDesign(basePath);
-  const preset = themePresets[configuredTheme()];
   return `${fontFaceCss(basePath)}:root {
   color-scheme: light;
   --docsflare-color-primary: ${design.lightPrimary};
@@ -1712,25 +1688,25 @@ function css(basePath = ""): string {
   --docsflare-font-mono: ${design.monoFont};
   --docsflare-space-1: 4px; --docsflare-space-2: 8px; --docsflare-space-3: 12px;
   --docsflare-space-4: 16px; --docsflare-space-5: 24px; --docsflare-space-6: 32px;
-  --docsflare-radius-sm: ${Number.parseFloat(preset.radius) * .6}px;
-  --docsflare-radius-md: ${preset.radius};
-  --docsflare-radius-lg: ${Number.parseFloat(preset.radius) * 1.2}px;
+  --docsflare-radius-sm: 6px;
+  --docsflare-radius-md: 10px;
+  --docsflare-radius-lg: 12px;
   --docsflare-radius-pill: 999px;
   --docsflare-radius: var(--docsflare-radius-md);
   --docsflare-radius-small: var(--docsflare-radius-sm);
-  --docsflare-content-width: ${preset.content};
-  --docsflare-sidebar-width: ${preset.sidebar};
+  --docsflare-content-width: 720px;
+  --docsflare-sidebar-width: 286px;
   --docsflare-space-page: 36px;
   --docsflare-color-muted: var(--docsflare-color-text-muted);
   --docsflare-component-background: var(--docsflare-color-surface);
   --docsflare-component-background-hover: var(--docsflare-color-surface-muted);
   --docsflare-component-border: var(--docsflare-color-border);
-  --docsflare-component-shadow: ${preset.cardShadow};
-  --docsflare-heading-weight: ${preset.fontWeight};
+  --docsflare-component-shadow: 0 1px 2px rgba(15,23,42,.025);
+  --docsflare-heading-weight: 760;
   --bg: var(--docsflare-color-background); --surface: var(--docsflare-color-surface); --surface-alt: var(--docsflare-color-surface-muted);
   --text: var(--docsflare-color-text); --muted: var(--docsflare-color-muted); --line: var(--docsflare-color-border);
   --primary: var(--docsflare-color-primary); --code: var(--docsflare-color-code-background);
-  --topbar-height: ${preset.topbar}; --sidebar-width: var(--docsflare-sidebar-width); --toc-width: 220px; --radius: var(--docsflare-radius);
+  --topbar-height: 104px; --sidebar-width: var(--docsflare-sidebar-width); --toc-width: 220px; --radius: var(--docsflare-radius);
 }
 html[data-theme="dark"] {
   color-scheme: dark;
@@ -2035,107 +2011,6 @@ h1 { margin: 0; color: var(--text); font-size: 34px; line-height: 1.16; letter-s
 .chat-form textarea { min-height: 40px; max-height: 120px; resize: vertical; padding: 9px 10px; font: inherit; font-size: 16px; outline: none; }
 .chat-form button { border: 0; border-radius: 6px; background: var(--primary); color: white; padding: 0 14px; font: inherit; font-size: 16px; font-weight: 680; cursor: pointer; }
 html[data-theme="dark"] .search-panel { background: rgba(0, 0, 0, .52); }
-
-/* Theme presets intentionally change composition as well as tokens. Mint remains the neutral baseline. */
-html[data-docsflare-theme="maple"] {
-  --docsflare-color-background: #fffaf3; --docsflare-color-surface: #fffdf8; --docsflare-color-surface-muted: #f8eddf;
-  --docsflare-color-text: #35281e; --docsflare-color-text-muted: #806b5a; --docsflare-color-border: #ead8c6;
-}
-html[data-docsflare-theme="maple"][data-theme="dark"] {
-  --docsflare-color-background: #1b1511; --docsflare-color-surface: #241c17; --docsflare-color-surface-muted: #30241c;
-  --docsflare-color-text: #f5e9dc; --docsflare-color-text-muted: #bda996; --docsflare-color-border: #49382b;
-}
-html[data-docsflare-theme="maple"] .topbar { border-bottom: 3px solid color-mix(in srgb, var(--primary) 55%, var(--line)); }
-html[data-docsflare-theme="maple"] .sidebar { background: color-mix(in srgb, var(--surface-alt) 58%, transparent); }
-html[data-docsflare-theme="maple"] .content h2 { border-bottom: 1px solid var(--line); padding-bottom: 10px; }
-html[data-docsflare-theme="maple"] .mdx-card { border-color: color-mix(in srgb, var(--primary) 22%, var(--line)); }
-
-html[data-docsflare-theme="palm"] .topbar { background: color-mix(in srgb, var(--surface) 88%, transparent); backdrop-filter: blur(18px); }
-html[data-docsflare-theme="palm"] .top-tabs { justify-content: center; gap: 10px; }
-html[data-docsflare-theme="palm"] .top-tabs a { border-radius: var(--docsflare-radius-pill); padding-inline: 16px; }
-html[data-docsflare-theme="palm"] .sidebar { border-right: 0; padding: 30px 18px; }
-html[data-docsflare-theme="palm"] .sidebar nav a { border-radius: var(--docsflare-radius-pill); padding: 8px 14px; }
-html[data-docsflare-theme="palm"] .mdx-card { min-height: 184px; border-radius: 24px; padding: 24px; }
-html[data-docsflare-theme="palm"] .mdx-card-icon { width: 42px; height: 42px; border-radius: 50%; }
-html[data-docsflare-theme="palm"] .chat-launcher { height: 48px; padding-inline: 22px; }
-
-html[data-docsflare-theme="willow"] .topbar { border-bottom: 0; background: var(--bg); }
-html[data-docsflare-theme="willow"] .top-tabs { border-bottom: 1px solid var(--line); }
-html[data-docsflare-theme="willow"] .sidebar { border-right: 0; }
-html[data-docsflare-theme="willow"] .sidebar nav a { border-left: 2px solid transparent; border-radius: 0; }
-html[data-docsflare-theme="willow"] .sidebar nav a.active { border-left-color: var(--primary); background: transparent; }
-html[data-docsflare-theme="willow"] .mdx-card { border: 0; border-radius: 0; background: var(--surface-alt); box-shadow: none; }
-html[data-docsflare-theme="willow"] .content h2 { font-weight: 620; letter-spacing: -.015em; }
-html[data-docsflare-theme="willow"] .pager a { border: 0; border-bottom: 1px solid var(--line); border-radius: 0; }
-
-html[data-docsflare-theme="linden"] { --docsflare-space-page: 24px; }
-html[data-docsflare-theme="linden"] body { font-size: 13.5px; }
-html[data-docsflare-theme="linden"] .topbar-inner { height: 56px; }
-html[data-docsflare-theme="linden"] .top-tabs { height: 48px; }
-html[data-docsflare-theme="linden"] .sidebar { padding-top: 22px; }
-html[data-docsflare-theme="linden"] .sidebar nav section + section { margin-top: 16px; }
-html[data-docsflare-theme="linden"] .sidebar nav h2 { font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; }
-html[data-docsflare-theme="linden"] .sidebar nav a { padding-block: 4px; font-size: 12.5px; }
-html[data-docsflare-theme="linden"] .main { padding-top: 38px; gap: 48px; }
-html[data-docsflare-theme="linden"] h1 { font-size: 30px; letter-spacing: -.015em; }
-html[data-docsflare-theme="linden"] .mdx-card { min-height: 132px; padding: 16px; }
-
-html[data-docsflare-theme="almond"] {
-  --docsflare-color-background: #f7f3ea; --docsflare-color-surface: #fffcf5; --docsflare-color-surface-muted: #eee7da;
-  --docsflare-color-text: #29251f; --docsflare-color-text-muted: #756c60; --docsflare-color-border: #d8cfc0;
-}
-html[data-docsflare-theme="almond"][data-theme="dark"] {
-  --docsflare-color-background: #191714; --docsflare-color-surface: #211e19; --docsflare-color-surface-muted: #2c2821;
-  --docsflare-color-text: #f0eadf; --docsflare-color-text-muted: #aaa093; --docsflare-color-border: #443d33;
-}
-html[data-docsflare-theme="almond"] .topbar { border-bottom-style: double; border-bottom-width: 3px; }
-html[data-docsflare-theme="almond"] h1 { font-size: 46px; line-height: 1.03; font-weight: 620; letter-spacing: -.035em; }
-html[data-docsflare-theme="almond"] .description { font-family: var(--docsflare-font-heading); font-size: 20px; font-style: italic; }
-html[data-docsflare-theme="almond"] .content h2 { font-size: 26px; font-weight: 620; }
-html[data-docsflare-theme="almond"] .mdx-card { border-width: 0 0 0 3px; border-radius: 0; }
-html[data-docsflare-theme="almond"] .toc { border-left-style: double; border-left-width: 3px; }
-
-html[data-docsflare-theme="aspen"] {
-  --docsflare-color-background: #f6f9fc; --docsflare-color-surface-muted: #edf3f8; --docsflare-color-border: #cedbe6;
-}
-html[data-docsflare-theme="aspen"][data-theme="dark"] {
-  --docsflare-color-background: #0b1219; --docsflare-color-surface: #111b25; --docsflare-color-surface-muted: #172532;
-  --docsflare-color-border: #294052;
-}
-html[data-docsflare-theme="aspen"] .topbar { box-shadow: inset 0 -1px color-mix(in srgb, var(--primary) 45%, var(--line)); }
-html[data-docsflare-theme="aspen"] .sidebar { background: var(--surface-alt); padding-left: 18px; }
-html[data-docsflare-theme="aspen"] .sidebar nav a.active { box-shadow: inset 3px 0 var(--primary); }
-html[data-docsflare-theme="aspen"] h1 { font-size: 39px; letter-spacing: -.035em; }
-html[data-docsflare-theme="aspen"] .mdx-card { border-width: 2px; background: transparent; }
-html[data-docsflare-theme="aspen"] .content pre { box-shadow: 0 12px 32px rgba(15, 23, 42, .14); }
-
-html[data-docsflare-theme="sequoia"] .topbar { border-bottom: 0; background: #14251f; color: #effaf5; }
-html[data-docsflare-theme="sequoia"] .brand, html[data-docsflare-theme="sequoia"] .top-link,
-html[data-docsflare-theme="sequoia"] .theme-toggle, html[data-docsflare-theme="sequoia"] .top-tabs a { color: #cfe1d9; }
-html[data-docsflare-theme="sequoia"] .top-search { border-color: #3a574b; background: #1d342b; color: #cfe1d9; }
-html[data-docsflare-theme="sequoia"] .top-tabs a.active { background: #29483b; color: #ffffff; }
-html[data-docsflare-theme="sequoia"] .sidebar { border-right: 0; background: #1a2d26; padding-left: 22px; }
-html[data-docsflare-theme="sequoia"] .sidebar nav h2 { color: #f1f8f5; }
-html[data-docsflare-theme="sequoia"] .sidebar nav a { color: #abc2b8; }
-html[data-docsflare-theme="sequoia"] .sidebar nav a:hover { background: #263f35; color: white; }
-html[data-docsflare-theme="sequoia"] .sidebar nav a.active { background: #315244; color: white; }
-html[data-docsflare-theme="sequoia"] h1 { font-size: 42px; line-height: 1.05; }
-html[data-docsflare-theme="sequoia"] .mdx-card { border: 0; background: var(--surface); box-shadow: 0 14px 38px rgba(15, 23, 42, .1); }
-
-html[data-docsflare-theme="luma"] {
-  --docsflare-color-background: #f6f5ff; --docsflare-color-surface: rgba(255,255,255,.72); --docsflare-color-surface-muted: rgba(240,238,255,.76);
-  --docsflare-color-border: rgba(79,70,229,.16); --docsflare-background-image: radial-gradient(circle at 8% 8%, rgba(45,212,191,.15), transparent 28%), radial-gradient(circle at 92% 16%, rgba(139,92,246,.18), transparent 30%);
-}
-html[data-docsflare-theme="luma"][data-theme="dark"] {
-  --docsflare-color-background: #0e0c18; --docsflare-color-surface: rgba(27,24,43,.76); --docsflare-color-surface-muted: rgba(38,33,59,.78);
-  --docsflare-color-border: rgba(196,181,253,.18); --docsflare-background-image: radial-gradient(circle at 8% 8%, rgba(45,212,191,.12), transparent 28%), radial-gradient(circle at 92% 16%, rgba(139,92,246,.2), transparent 30%);
-}
-html[data-docsflare-theme="luma"] .topbar { background: color-mix(in srgb, var(--surface) 78%, transparent); backdrop-filter: blur(22px) saturate(145%); }
-html[data-docsflare-theme="luma"] .sidebar { margin: 18px 0 18px 18px; height: calc(100vh - var(--topbar-height) - 36px); border: 1px solid var(--line); border-radius: 22px; background: var(--surface); padding: 22px; backdrop-filter: blur(18px); }
-html[data-docsflare-theme="luma"] .main { padding-left: 58px; }
-html[data-docsflare-theme="luma"] h1 { font-size: 40px; }
-html[data-docsflare-theme="luma"] .mdx-card { border-color: rgba(255,255,255,.48); border-radius: 22px; background: var(--surface); backdrop-filter: blur(16px); }
-html[data-docsflare-theme="luma"] .search-trigger, html[data-docsflare-theme="luma"] .primary-action { border-radius: var(--docsflare-radius-pill); }
 
 @media (max-width: 1120px) {
   .topbar-inner { grid-template-columns: minmax(180px, var(--sidebar-width)) minmax(220px, 1fr) auto; }

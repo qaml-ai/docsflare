@@ -1,7 +1,6 @@
 {
   "$schema": "https://docs.mintlify.com/schema.json",
   "name": "Docsflare",
-  "theme": "mint",
   "logo": {
     "light": "/logo.svg",
     "dark": "/logo.svg"

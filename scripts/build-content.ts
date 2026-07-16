@@ -13,8 +13,6 @@ import * as jsxRuntime from "react/jsx-runtime";
 type MintConfig = {
   name?: string;
   basePath?: string;
-  /** Built-in Docsflare visual preset. */
-  theme?: string;
   appearance?: {
     default?: "system" | "light" | "dark";
     strict?: boolean;
@@ -1398,7 +1396,6 @@ async function main() {
       logo: config.logo,
       favicon: config.favicon,
       colors: config.colors ?? {},
-      theme: config.theme,
       appearance: config.appearance,
       fonts: config.fonts,
       background: config.background,

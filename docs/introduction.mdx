@@ -16,7 +16,7 @@ Cloudflare is the preferred deployment target, not a dependency. Local search, s
     Cards, tabs, steps, callouts, code groups, API fields, and standard Markdown render at build time.
   </Card>
   <Card title="Make it yours" icon="palette" href="/customization">
-    Choose a distinct theme, configure both color modes and fonts, or override everything with project CSS.
+    Configure both color modes and fonts, then override the maintained base design with project CSS where needed.
   </Card>
   <Card title="Deploy anywhere" icon="globe" href="/deployment-targets">
     Use the first-party Cloudflare and Node paths or integrate the standard request handler with another host.
@@ -83,7 +83,6 @@ The common path stays intentionally short:
 ```json docs.json
 {
   "name": "Acme Docs",
-  "theme": "luma",
   "colors": {
     "primary": "#0f766e",
     "light": "#2dd4bf",
@@ -116,7 +115,7 @@ The common path stays intentionally short:
 | Search | In-memory page index | Managed AI Search crawler |
 | Chat | Relevant source-page responses | Retrieval-grounded model response |
 | Runtime | Standard Fetch handler and Node adapter | Wrangler deploy workflow |
-| Styling | Nine themes and project CSS | Same appearance, no vendor fork |
+| Styling | Design tokens and project CSS | Same appearance, no vendor fork |
 
 ## Designed for people and agents
 
@@ -134,7 +133,7 @@ Usually. Keep the content and navigation, then replace unsupported custom React 
 </Accordion>
 
 <Accordion title="Does custom CSS require a paid plan?">
-No. Every `.css` file below the content directory is discovered and bundled automatically. Project styles load after the selected theme.
+No. Every `.css` file below the content directory is discovered and bundled automatically. Project styles load after the built-in styles.
 </Accordion>
 
 <Accordion title="Am I required to use Cloudflare AI Search?">

@@ -3,7 +3,6 @@ export const content = {
   site: {
     name: "Docsflare",
     colors: {},
-    theme: undefined,
     appearance: undefined,
     fonts: undefined,
     background: undefined

@@ -22,7 +22,7 @@ This repo includes starter content in `docs/` so the project can run immediately
 - Markdown and MDX pages rendered at build time
 - `docs.json` and `mint.json` navigation compatibility
 - Common Mintlify-style MDX components such as cards, tabs, accordions, and callouts
-- Mintlify-compatible themes, color modes, fonts, backgrounds, and automatically bundled custom CSS
+- Configurable color modes, fonts, backgrounds, and automatically bundled custom CSS
 - Static local search fallback for development
 - Optional Cloudflare AI Search-backed `/api/search` and `/api/chat` endpoints
 - Generated `sitemap.xml`, `robots.txt`, and `llms.txt`
@@ -248,13 +248,12 @@ Supported built-in MDX components:
 
 Tabs and multi-example code groups include keyboard-accessible client-side switching. All tab content remains present in the generated HTML for indexing.
 
-## Themes And Custom CSS
+## Appearance And Custom CSS
 
-Set a Mintlify theme name in `docs.json` or `mint.json`, then use `colors`, `appearance`, `fonts`, and `background` for the common appearance settings:
+Use `colors`, `appearance`, `fonts`, and `background` in `docs.json` or `mint.json` for the common appearance settings:
 
 ```json
 {
-  "theme": "mint",
   "colors": {
     "primary": "#0f766e",
     "light": "#14b8a6",
@@ -267,7 +266,7 @@ Set a Mintlify theme name in `docs.json` or `mint.json`, then use `colors`, `app
 }
 ```
 
-Every `.css` file below the content directory is bundled automatically after Docsflare's styles. Use the documented `--docsflare-*` custom properties and `data-docsflare-component` hooks for durable overrides. See [Themes and custom CSS](docs/customization.mdx) for theme names, font and background setup, stylesheet ordering, the stable CSS contract, examples, and troubleshooting.
+Every `.css` file below the content directory is bundled automatically after Docsflare's styles. Use the documented `--docsflare-*` custom properties and `data-docsflare-component` hooks for durable overrides. See [Appearance and custom CSS](docs/customization.mdx) for font and background setup, stylesheet ordering, the stable CSS contract, examples, and troubleshooting.
 
 ## Search And Chat
 
