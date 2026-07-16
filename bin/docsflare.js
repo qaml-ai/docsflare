@@ -413,10 +413,11 @@ function runDoctor(contentDir) {
 
   for (const file of mdxFiles) {
     const source = readFileSync(path.join(contentDir, file), "utf8");
-    if (/^\s*import\s/m.test(source)) {
+    const authoredMdx = source.replace(/^[\t ]*(?:```|~~~)[^\n]*\n[\s\S]*?^[\t ]*(?:```|~~~)[\t ]*$/gm, "");
+    if (/^\s*import\s/m.test(authoredMdx)) {
       warnings.push(`${file} contains import statements; custom React imports are not bundled yet.`);
     }
-    if (/^\s*export\s/m.test(source)) {
+    if (/^\s*export\s/m.test(authoredMdx)) {
       warnings.push(`${file} contains export statements; page-level exports may not render as expected.`);
     }
   }

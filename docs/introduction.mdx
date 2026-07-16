@@ -1,26 +1,142 @@
 ---
-title: Introduction
-description: A portable, Mintlify-compatible documentation renderer with first-class Cloudflare support.
+title: Documentation without the platform lock-in
+description: Author rich MDX once, deploy it anywhere, and keep Cloudflare as the best-supported path instead of a requirement.
 ---
 
-# Introduction
+# Documentation without the platform lock-in
 
-Docsflare renders Mintlify-style MDX documentation as a standard Fetch API application. Keep your `docs.json` or `mint.json`, move your `.mdx` files over, and deploy to Cloudflare Workers, Node.js, or another Fetch-compatible runtime.
+Docsflare turns a Mintlify-style content directory into a portable Fetch API application. Keep familiar `docs.json`, MDX components, navigation, search, and theming—then run the same generated site on Cloudflare Workers, Node.js, or another Fetch-compatible runtime.
 
-<CardGroup cols={2}>
-  <Card title="MDX-first" href="/mdx-components">
-    Use familiar documentation components like cards, tabs, accordions, and callouts.
+<Info>
+Cloudflare is the preferred deployment target, not a dependency. Local search, static assets, sitemap, `llms.txt`, and every documentation page work without a Cloudflare account.
+</Info>
+
+<CardGroup cols={3}>
+  <Card title="Author in MDX" icon="code" href="/mdx-components">
+    Cards, tabs, steps, callouts, code groups, API fields, and standard Markdown render at build time.
   </Card>
-  <Card title="Deployment targets" href="/deployment-targets">
-    Choose the preferred Cloudflare path or run the Node.js adapter.
+  <Card title="Make it yours" icon="palette" href="/customization">
+    Choose a distinct theme, configure both color modes and fonts, or override everything with project CSS.
+  </Card>
+  <Card title="Deploy anywhere" icon="globe" href="/deployment-targets">
+    Use the first-party Cloudflare and Node paths or integrate the standard request handler with another host.
   </Card>
 </CardGroup>
 
-## What is included
+## One content tree, several runtimes
 
-- Static MDX rendering at build time
-- Mintlify-style navigation parsing
-- A `docsflare` CLI for local dev, builds, deploys, and project checks
-- Portable routing for pages, sitemap, and `llms.txt`
-- Built-in local search with optional provider integrations
-- Cloudflare AI Search support through an optional binding
+The build output has no hosted control plane. Pick the runtime that fits each environment without rewriting the docs.
+
+<Tabs>
+  <Tab title="Cloudflare Workers">
+    ```bash
+    docsflare deploy docs
+    ```
+
+    Deploy the generated Worker with optional Cloudflare AI Search and observability configuration.
+  </Tab>
+  <Tab title="Node.js">
+    ```bash
+    docsflare build docs
+    docsflare start docs
+    ```
+
+    Run the built-in Node adapter on any host that supports Node.js 20 or newer.
+  </Tab>
+  <Tab title="Fetch handler">
+    ```typescript
+    import { handleRequest } from "./docs/.docsflare/worker";
+
+    const response = await handleRequest(new Request(url), env, context);
+    ```
+
+    Adapt the generated standard request handler to another serverless or edge runtime.
+  </Tab>
+</Tabs>
+
+## From repository to production
+
+<Steps>
+  <Step title="Point Docsflare at your content">
+    Start fresh with `docsflare init docs` or use an existing directory containing `docs.json` or `mint.json`.
+  </Step>
+  <Step title="Preview the complete application">
+    Run `docsflare dev docs` and test navigation, responsive layouts, color modes, search, and MDX interactions locally.
+  </Step>
+  <Step title="Build once">
+    Docsflare renders pages and assets into `.docsflare/`, including the portable Worker and Node adapter.
+  </Step>
+  <Step title="Ship to your preferred runtime">
+    Deploy directly to Cloudflare or package the generated Fetch handler for your platform.
+  </Step>
+</Steps>
+
+<Tip>
+The default local index keeps search useful everywhere. Add one `AI_SEARCH` binding when you want Cloudflare's managed crawler, hybrid retrieval, and generated answers in production.
+</Tip>
+
+## A small configuration surface
+
+The common path stays intentionally short:
+
+<CodeGroup>
+```json docs.json
+{
+  "name": "Acme Docs",
+  "theme": "luma",
+  "colors": {
+    "primary": "#0f766e",
+    "light": "#2dd4bf",
+    "dark": "#134e4a"
+  },
+  "navigation": [
+    {
+      "group": "Guides",
+      "pages": ["introduction", "quickstart"]
+    }
+  ]
+}
+```
+
+```css custom.css
+:root {
+  --docsflare-content-width: 760px;
+  --docsflare-radius: 14px;
+}
+
+[data-docsflare-component="card"] {
+  box-shadow: 0 16px 40px rgb(15 23 42 / 8%);
+}
+```
+</CodeGroup>
+
+| Capability | Portable default | Cloudflare enhancement |
+| --- | --- | --- |
+| Rendering | Build-time MDX and static assets | Globally distributed Worker |
+| Search | In-memory page index | Managed AI Search crawler |
+| Chat | Relevant source-page responses | Retrieval-grounded model response |
+| Runtime | Standard Fetch handler and Node adapter | Wrangler deploy workflow |
+| Styling | Nine themes and project CSS | Same appearance, no vendor fork |
+
+## Designed for people and agents
+
+<Columns cols={2}>
+  <Panel title="Predictable for maintainers" icon="check">
+    Content, configuration, styles, and deployment files stay in the repository. There is no hidden synchronization state to recover.
+  </Panel>
+  <Panel title="Legible to coding agents" icon="code">
+    Repository instructions point agents to canonical search and customization runbooks, with explicit architectural invariants.
+  </Panel>
+</Columns>
+
+<Accordion title="Can I migrate an existing Mintlify project?">
+Usually. Keep the content and navigation, then replace unsupported custom React imports. Common documentation components and appearance fields have built-in equivalents.
+</Accordion>
+
+<Accordion title="Does custom CSS require a paid plan?">
+No. Every `.css` file below the content directory is discovered and bundled automatically. Project styles load after the selected theme.
+</Accordion>
+
+<Accordion title="Am I required to use Cloudflare AI Search?">
+No. Search and source-based chat have portable local behavior. Cloudflare AI Search is an optional production upgrade through the `AI_SEARCH` binding.
+</Accordion>
