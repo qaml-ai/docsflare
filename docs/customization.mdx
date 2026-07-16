@@ -7,7 +7,28 @@ description: Configure color modes, fonts, backgrounds, and site-wide CSS.
 
 Docsflare provides one carefully maintained layout with Mintlify-style appearance settings and automatically bundled project CSS. Start with a few brand tokens. Add CSS only where you need a deliberate override.
 
-The common appearance configuration stays small:
+## The fastest path: edit custom.css
+
+New projects include `custom.css` beside `docs.json`. Existing projects can create that file themselves. Docsflare finds it automatically—there is no import, plugin, or paid feature to enable.
+
+```css
+:root {
+  --docsflare-content-width: 760px;
+  --docsflare-sidebar-width: 300px;
+  --docsflare-space-page: 40px;
+  --docsflare-radius: 14px;
+  --docsflare-radius-small: 8px;
+  --docsflare-font-body: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+[data-docsflare-component="card"] {
+  box-shadow: 0 12px 32px rgb(15 23 42 / 8%);
+}
+```
+
+Save the file while `docsflare dev` is running to preview the result after the content rebuild. The generated starter file contains these common options as commented examples, so customization starts by uncommenting a line.
+
+Use `docs.json` for brand colors and browser behavior:
 
 ```json
 {

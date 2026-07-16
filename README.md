@@ -105,6 +105,7 @@ docsflare dev
 ├── bin/docsflare.js           # CLI entrypoint
 ├── docs/                      # Example docs content
 │   ├── docs.json              # Mintlify-style site config and navigation
+│   ├── custom.css             # Site-wide variables and component overrides
 │   ├── *.mdx                  # Documentation pages
 │   └── logo.svg               # Static asset served by the Worker
 ├── scripts/
@@ -169,6 +170,7 @@ Docsflare writes generated build output to `.docsflare/`. Keep that directory ig
 The directory should contain:
 
 - `docs.json` or `mint.json`
+- `custom.css` for optional site-wide customization (created by `docsflare init`)
 - `.mdx` or `.md` pages referenced by navigation
 - images and other public assets referenced by your docs
 
@@ -250,7 +252,17 @@ Tabs and multi-example code groups include keyboard-accessible client-side switc
 
 ## Appearance And Custom CSS
 
-Use `colors`, `appearance`, `fonts`, and `background` in `docs.json` or `mint.json` for the common appearance settings:
+The easiest customization path is the generated `custom.css` file. It loads automatically after Docsflare's built-in styles:
+
+```css
+:root {
+  --docsflare-content-width: 760px;
+  --docsflare-radius: 14px;
+  --docsflare-font-body: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+```
+
+Use `colors`, `appearance`, `fonts`, and `background` in `docs.json` or `mint.json` for brand and browser settings:
 
 ```json
 {
@@ -266,7 +278,7 @@ Use `colors`, `appearance`, `fonts`, and `background` in `docs.json` or `mint.js
 }
 ```
 
-Every `.css` file below the content directory is bundled automatically after Docsflare's styles. Use the documented `--docsflare-*` custom properties and `data-docsflare-component` hooks for durable overrides. See [Appearance and custom CSS](docs/customization.mdx) for font and background setup, stylesheet ordering, the stable CSS contract, examples, and troubleshooting.
+Every `.css` file below the content directory is bundled automatically after Docsflare's styles. Use the documented `--docsflare-*` custom properties and `data-docsflare-component` hooks for durable overrides. See [Appearance and custom CSS](docs/customization.mdx) for the copy-paste workflow, font and background setup, stylesheet ordering, the stable CSS contract, and troubleshooting.
 
 ## Search And Chat
 

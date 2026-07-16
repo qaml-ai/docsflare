@@ -352,6 +352,7 @@ function initProject(options) {
 
   mkdirSync(contentDir, { recursive: true });
   writeIfAllowed(path.join(contentDir, "docs.json"), starterDocsJson(), options.force);
+  writeIfAllowed(path.join(contentDir, "custom.css"), starterCustomCss(), options.force);
   writeIfAllowed(path.join(contentDir, "introduction.mdx"), starterIntroduction(), options.force);
   writeIfAllowed(path.join(contentDir, "quickstart.mdx"), starterQuickstart(), options.force);
 
@@ -559,6 +560,40 @@ function starterDocsJson() {
       }
     ]
   }, null, 2)}
+`;
+}
+
+function starterCustomCss() {
+  return `/*
+ * Docsflare customization starts here. This file is loaded automatically after
+ * the built-in styles. Uncomment only what you want to change.
+ */
+
+:root {
+  /* Layout */
+  /* --docsflare-content-width: 760px; */
+  /* --docsflare-sidebar-width: 300px; */
+  /* --docsflare-space-page: 40px; */
+
+  /* Shape */
+  /* --docsflare-radius: 14px; */
+  /* --docsflare-radius-small: 8px; */
+
+  /* Typography */
+  /* --docsflare-font-body: Inter, ui-sans-serif, system-ui, sans-serif; */
+  /* --docsflare-font-heading: Sora, var(--docsflare-font-body); */
+}
+
+/* Stable component hooks are available when variables are not enough. */
+/*
+[data-docsflare-component="card"] {
+  box-shadow: 0 12px 32px rgb(15 23 42 / 8%);
+}
+
+html[data-theme="dark"] [data-docsflare-component="card"] {
+  box-shadow: none;
+}
+*/
 `;
 }
 
