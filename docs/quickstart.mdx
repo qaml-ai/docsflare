@@ -1,6 +1,6 @@
 ---
 title: Quickstart
-description: Run the local worker and deploy the generated docs site.
+description: Run the docs site locally and choose a deployment runtime.
 ---
 
 # Quickstart
@@ -44,8 +44,18 @@ Most projects only need to adjust unsupported custom React imports. Common Mintl
 
 ## Deploy
 
-Deploy the generated Worker:
+Cloudflare Workers is the default deployment target:
 
 ```bash
 docsflare deploy docs
 ```
+
+To develop or run with Node.js instead:
+
+```bash
+docsflare dev docs --platform node
+docsflare build docs
+docsflare start docs
+```
+
+See [Deployment targets](/deployment-targets) for the generated runtime files and integration options.

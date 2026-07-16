@@ -11,14 +11,12 @@
     "dev": "node bin/docsflare.js dev",
     "build": "node bin/docsflare.js build",
     "deploy": "node bin/docsflare.js deploy",
-    "search:sync": "node bin/docsflare.js search sync",
     "doctor": "node bin/docsflare.js doctor",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@mdx-js/mdx": "^3.1.1",
     "@mdx-js/react": "^3.1.1",
-    "@cloudflare/workers-types": "^4.20260508.0",
     "@types/node": "^25.8.0",
     "@types/react": "^19.1.4",
     "@types/react-dom": "^19.1.5",
@@ -30,7 +28,9 @@
     "rehype-slug": "^6.0.0",
     "remark-gfm": "^4.0.1",
     "tsx": "^4.19.4",
-    "typescript": "^5.8.3",
-    "wrangler": "^4.16.0"
+    "typescript": "^5.8.3"
+  },
+  "devDependencies": {
+    "wrangler": "^4.111.0"
   }
 }

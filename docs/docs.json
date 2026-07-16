@@ -17,7 +17,11 @@
     },
     {
       "group": "Authoring",
-      "pages": ["mdx-components", "cloudflare-search", "dynamic-workers"]
+      "pages": ["mdx-components"]
+    },
+    {
+      "group": "Deployment",
+      "pages": ["deployment-targets", "cloudflare-search", "dynamic-workers"]
     }
   ]
 }

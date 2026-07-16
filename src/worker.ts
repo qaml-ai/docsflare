@@ -30,6 +30,7 @@ type GeneratedContent = {
     description: string;
     route: string;
     sourcePath: string;
+    updatedAt?: string;
     html: string;
     markdown: string;
   }>;
@@ -40,7 +41,7 @@ type GeneratedContent = {
   }>;
 };
 
-type AiSearchChunk = {
+export type SearchChunk = {
   id?: string;
   score?: number;
   text?: string;
@@ -55,21 +56,14 @@ type ChatMessage = {
   content: string;
 };
 
-type AiSearchBinding = {
-  items?: {
-    upload(name: string, content: string | ArrayBuffer | ReadableStream, options?: { metadata?: Record<string, string> }): Promise<{ id: string; key: string }>;
-    list(options?: { page?: number; per_page?: number; status?: string; sort_by?: string; search?: string; source?: string }): Promise<{ result?: AiSearchItem[]; result_info?: { page?: number; per_page?: number; total_count?: number } }>;
-    delete(itemId: string): Promise<void>;
-    get(itemId: string): {
-      info(): Promise<AiSearchItem>;
-      download(): Promise<{ filename: string; contentType: string; size: number; body: ReadableStream }>;
-    };
-  };
+export type SearchProvider = {
+  /** Identifier returned by the search and chat APIs. */
+  id?: string;
   search(input: {
     query?: string;
     messages?: ChatMessage[];
     ai_search_options?: Record<string, unknown>;
-  }): Promise<{ chunks?: AiSearchChunk[] }>;
+  }): Promise<{ chunks?: SearchChunk[] }>;
   chatCompletions?(input: {
     messages: ChatMessage[];
     model?: string;
@@ -77,27 +71,21 @@ type AiSearchBinding = {
     ai_search_options?: Record<string, unknown>;
   }): Promise<{
     choices?: Array<{ message?: { role?: string; content?: string } }>;
-    chunks?: AiSearchChunk[];
+    chunks?: SearchChunk[];
   }>;
 };
 
-type Env = {
-  DOCS_SEARCH?: AiSearchBinding;
+export type DocsflareEnv = {
+  /** Portable provider binding for non-Cloudflare runtimes and custom adapters. */
+  SEARCH?: SearchProvider;
+  /** Cloudflare AI Search instance binding. */
+  AI_SEARCH?: SearchProvider;
 };
 
-type AiSearchItem = {
-  id: string;
-  key: string;
-  status?: string;
-  file_size?: number;
-  metadata?: Record<string, unknown>;
+export type RuntimeContext = {
+  waitUntil(promise: Promise<unknown>): void;
 };
 
-type SearchDocument = {
-  key: string;
-  hash: string;
-  body: string;
-};
 
 const docsContent = content as unknown as GeneratedContent;
 
@@ -107,6 +95,7 @@ type Asset = GeneratedContent["assets"][number];
 const pages = [...docsContent.pages];
 const pageByRoute = new Map(pages.map((page) => [normalizeRoute(page.route), page]));
 const assetByRoute = new Map((docsContent.assets ?? []).map((asset) => [normalizeRoute(asset.route), asset]));
+const searchIndexJsonByBasePath = new Map<string, string>();
 const legacyRedirects = new Map([
   ["/api-reference/ask_camel/ask-camel", "/api-reference/ask-camel/ask-camel"],
   ["/api-reference/internal_api/post-internal_apichat-recommendations", "/api-reference/internal-api/internal-api-chat-recommendations-create"],
@@ -114,8 +103,11 @@ const legacyRedirects = new Map([
   ["/api-reference/internal_api/post-internal_apisendmessage", "/api-reference/internal-api/internal-api-sendmessage-create"]
 ]);
 
-export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+export async function handleRequest(
+  request: Request,
+  env: DocsflareEnv = {},
+  ctx: RuntimeContext = defaultRuntimeContext()
+): Promise<Response> {
     const url = new URL(request.url);
     const siteBasePath = configuredBasePath();
     const basePath = basePathForRequest(url.pathname, siteBasePath);
@@ -125,10 +117,6 @@ export default {
 
     if (route === "/api/search") {
       return handleSearch(request, env, ctx);
-    }
-
-    if (route === "/api/search/sync") {
-      return handleSearchSync(request, env, ctx);
     }
 
     if (route === "/api/chat") {
@@ -168,16 +156,47 @@ export default {
     }
 
     return htmlResponse(renderShell(page, url, 200, initialTheme, basePath), 200);
-  }
+}
+
+export default {
+  fetch: handleRequest
 };
 
-async function handleSearch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+type RuntimeCache = {
+  match(request: Request): Promise<Response | undefined>;
+  put(request: Request, response: Response): Promise<void>;
+};
+
+function searchProvider(env: DocsflareEnv): SearchProvider | undefined {
+  return env.SEARCH ?? env.AI_SEARCH;
+}
+
+function searchProviderId(env: DocsflareEnv, provider: SearchProvider): string {
+  return provider.id ?? (env.AI_SEARCH === provider ? "cloudflare-ai-search" : "external-search");
+}
+
+async function openCache(name: string): Promise<RuntimeCache | undefined> {
+  const cacheStorage = (globalThis as typeof globalThis & {
+    caches?: { open(cacheName: string): Promise<RuntimeCache> };
+  }).caches;
+  return cacheStorage?.open(name);
+}
+
+function defaultRuntimeContext(): RuntimeContext {
+  return {
+    waitUntil(promise) {
+      void promise.catch((error) => console.error("Docsflare background task failed", error));
+    }
+  };
+}
+
+async function handleSearch(request: Request, env: DocsflareEnv, ctx: RuntimeContext): Promise<Response> {
   const url = new URL(request.url);
   const basePath = basePathForRequest(url.pathname, configuredBasePath());
   let query = url.searchParams.get("q")?.trim() ?? "";
 
   if (request.method === "POST") {
-    const body = await request.json<{ query?: string }>().catch((): { query?: string } => ({}));
+    const body = await request.json().catch(() => ({})) as { query?: string };
     query = body.query?.trim() ?? query;
   }
 
@@ -185,17 +204,19 @@ async function handleSearch(request: Request, env: Env, ctx: ExecutionContext): 
     return jsonResponse({ results: [] });
   }
 
-  if (env.DOCS_SEARCH?.search) {
+  const provider = searchProvider(env);
+  if (provider?.search) {
+    const providerId = searchProviderId(env, provider);
     const cacheKey = new Request(`${url.origin}${routeWithBase("/api/search", basePath)}?q=${encodeURIComponent(query.toLowerCase())}`);
-    const searchCache = await caches.open("docsflare-search");
+    const searchCache = await openCache("docsflare-search");
 
     if (request.method === "GET") {
-      const cached = await searchCache.match(cacheKey);
+      const cached = await searchCache?.match(cacheKey);
       if (cached) return cached;
     }
 
     try {
-      const response = await env.DOCS_SEARCH.search({
+      const response = await provider.search({
         query,
         ai_search_options: {
           retrieval: {
@@ -207,177 +228,24 @@ async function handleSearch(request: Request, env: Env, ctx: ExecutionContext): 
 
       const results = prefixResultUrls((response.chunks ?? []).map((chunk) => resultFromAiSearchChunk(chunk)), basePath);
       const payload = jsonResponse(
-        { provider: "cloudflare-ai-search", results },
+        { provider: providerId, results },
         { "cache-control": "public, max-age=300, s-maxage=300" }
       );
 
       if (request.method === "GET") {
-        ctx.waitUntil(searchCache.put(cacheKey, payload.clone()));
+        if (searchCache) ctx.waitUntil(searchCache.put(cacheKey, payload.clone()));
       }
 
       return payload;
     } catch (error) {
-      console.warn("Cloudflare AI Search failed, falling back to static search", error);
+      console.warn(`${providerId} failed, falling back to static search`, error);
     }
   }
 
   return jsonResponse({ provider: "static-fallback", results: prefixResultUrls(localSearch(query), basePath) });
 }
 
-async function handleSearchSync(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-  if (request.method !== "POST") {
-    return jsonResponse({ error: "Method not allowed" }, { allow: "POST", "cache-control": "no-store" }, 405);
-  }
-
-  if (!env.DOCS_SEARCH?.items) {
-    return jsonResponse({ provider: "static-fallback", synced: false, reason: "DOCS_SEARCH items binding unavailable" });
-  }
-
-  const contentHash = await searchContentHash();
-  const markerRequest = new Request(`https://docsflare.internal/search-sync/${contentHash}`);
-  const syncCache = await caches.open("docsflare-search-sync");
-  const cached = await syncCache.match(markerRequest);
-
-  if (cached) {
-    return jsonResponse({ provider: "cloudflare-ai-search", synced: false, skipped: true, contentHash });
-  }
-
-  const lockRequest = new Request(`https://docsflare.internal/search-sync/lock/${contentHash}`);
-  const locked = await syncCache.match(lockRequest);
-  if (locked) {
-    return jsonResponse({ provider: "cloudflare-ai-search", synced: false, pending: true, contentHash });
-  }
-
-  await syncCache.put(lockRequest, jsonResponse({ locked: true }, { "cache-control": "public, max-age=120" }));
-  const syncPromise = syncSearchIndex(env.DOCS_SEARCH)
-    .then((result) => syncCache.put(markerRequest, jsonResponse(result, { "cache-control": "public, max-age=31536000" })))
-    .catch((error) => {
-      console.error("Docsflare lazy search sync failed", error);
-    });
-
-  ctx.waitUntil(syncPromise);
-
-  return jsonResponse({ provider: "cloudflare-ai-search", synced: true, accepted: true, contentHash }, { "cache-control": "no-store" }, 202);
-}
-
-async function syncSearchIndex(search: AiSearchBinding): Promise<Record<string, unknown>> {
-  if (!search.items) {
-    return { synced: false, reason: "items binding unavailable" };
-  }
-
-  const localDocuments = await searchDocuments();
-  const localByKey = new Map(localDocuments.map((document) => [document.key, document]));
-  const remoteItems = await listAiSearchItems(search);
-  const remoteByKey = new Map(remoteItems.map((item) => [item.key, item]));
-  const removedItems = remoteItems.filter((item) => !localByKey.has(item.key));
-  const newDocuments = localDocuments.filter((document) => !remoteByKey.has(document.key));
-  const changedDocuments: SearchDocument[] = [];
-  let unchanged = 0;
-
-  await runConcurrent(removedItems, 4, async (item) => {
-    await search.items?.delete(item.id);
-  });
-
-  await runConcurrent(localDocuments.filter((document) => remoteByKey.has(document.key)), 4, async (document) => {
-    const item = remoteByKey.get(document.key);
-    if (!item) return;
-    const remoteHash = await remoteItemHash(search, item);
-    if (remoteHash === document.hash) {
-      unchanged += 1;
-      return;
-    }
-    await search.items?.delete(item.id);
-    changedDocuments.push(document);
-  });
-
-  const documentsToUpload = [...newDocuments, ...changedDocuments].sort((a, b) => a.key.localeCompare(b.key));
-  await runConcurrent(documentsToUpload, 4, async (document) => {
-    await search.items?.upload(document.key, document.body);
-  });
-
-  return {
-    synced: true,
-    unchanged,
-    uploaded: documentsToUpload.length,
-    deleted: removedItems.length,
-    total: localDocuments.length
-  };
-}
-
-async function listAiSearchItems(search: AiSearchBinding): Promise<AiSearchItem[]> {
-  if (!search.items) return [];
-  const items: AiSearchItem[] = [];
-  const perPage = 50;
-
-  for (let page = 1; ; page += 1) {
-    const response = await search.items.list({ page, per_page: perPage });
-    const result = response.result ?? [];
-    items.push(...result.filter((item): item is AiSearchItem => typeof item?.id === "string" && typeof item?.key === "string"));
-
-    const totalCount = response.result_info?.total_count;
-    if (typeof totalCount === "number" && items.length >= totalCount) break;
-    if (result.length < perPage) break;
-  }
-
-  return items;
-}
-
-async function remoteItemHash(search: AiSearchBinding, item: AiSearchItem): Promise<string> {
-  try {
-    const file = await search.items?.get(item.id).download();
-    if (!file?.body) return "";
-    const text = await new Response(file.body).text();
-    return sha256(text);
-  } catch (error) {
-    console.warn(`Could not download AI Search item ${item.key}`, error);
-    return "";
-  }
-}
-
-async function searchDocuments(): Promise<SearchDocument[]> {
-  const documents = await Promise.all(pages.map(async (page) => {
-    const body = renderSearchDocument(page);
-    return {
-      key: searchDocumentKey(page),
-      hash: await sha256(body),
-      body
-    };
-  }));
-  return documents.sort((a, b) => a.key.localeCompare(b.key));
-}
-
-async function searchContentHash(): Promise<string> {
-  const documents = await searchDocuments();
-  return sha256(JSON.stringify(documents.map((document) => [document.key, document.hash])));
-}
-
-function renderSearchDocument(page: Page): string {
-  return `---\ntitle: ${JSON.stringify(page.title)}\ndescription: ${JSON.stringify(page.description)}\npath: ${JSON.stringify(page.route)}\nsource: ${JSON.stringify(page.sourcePath)}\n---\n\n# ${page.title}\n\n${page.description ? `${page.description}\n\n` : ""}${page.markdown}\n`;
-}
-
-function searchDocumentKey(page: Page): string {
-  return `${page.route.replace(/^\/$/, "index").replace(/^\//, "").replace(/\//g, "__")}.md`;
-}
-
-async function sha256(value: string): Promise<string> {
-  const bytes = new TextEncoder().encode(value);
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-async function runConcurrent<T>(items: T[], concurrency: number, worker: (item: T) => Promise<void>): Promise<void> {
-  let next = 0;
-  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
-    while (next < items.length) {
-      const item = items[next];
-      next += 1;
-      await worker(item);
-    }
-  });
-  await Promise.all(workers);
-}
-
-function resultFromAiSearchChunk(chunk: AiSearchChunk) {
+function resultFromAiSearchChunk(chunk: SearchChunk) {
   const metadata = chunk.item?.metadata ?? {};
   const metadataPath = stringFromUnknown(metadata.path) ?? stringFromUnknown(metadata.url);
   const keyPath = chunk.item?.key ? sourceKeyToRoute(chunk.item.key) : undefined;
@@ -416,14 +284,14 @@ function prefixResultUrls<T extends { url: string }>(results: T[], basePath: str
   return results.map((result) => ({ ...result, url: routeWithBase(result.url, basePath) }));
 }
 
-async function handleChat(request: Request, env: Env): Promise<Response> {
+async function handleChat(request: Request, env: DocsflareEnv): Promise<Response> {
   const basePath = basePathForRequest(new URL(request.url).pathname, configuredBasePath());
 
   if (request.method !== "POST") {
     return jsonResponse({ error: "Method not allowed" }, { "cache-control": "no-store" }, 405);
   }
 
-  const body = await request.json<{ messages?: Array<{ role?: string; content?: string }> }>().catch((): { messages?: Array<{ role?: string; content?: string }> } => ({}));
+  const body = await request.json().catch(() => ({})) as { messages?: Array<{ role?: string; content?: string }> };
   const messages = normalizeChatMessages(body.messages);
   const lastUserMessage = [...messages].reverse().find((message) => message.role === "user")?.content ?? "";
 
@@ -431,10 +299,11 @@ async function handleChat(request: Request, env: Env): Promise<Response> {
     return jsonResponse({ error: "Missing user message" }, { "cache-control": "no-store" }, 400);
   }
 
-  if (env.DOCS_SEARCH?.chatCompletions) {
+  const provider = searchProvider(env);
+  if (provider?.chatCompletions) {
+    const providerId = searchProviderId(env, provider);
     try {
-      const response = await env.DOCS_SEARCH.chatCompletions({
-        model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+      const response = await provider.chatCompletions({
         messages: [
           {
             role: "system",
@@ -459,12 +328,12 @@ async function handleChat(request: Request, env: Env): Promise<Response> {
 
       const answer = response.choices?.[0]?.message?.content?.trim() ?? "";
       return jsonResponse({
-        provider: "cloudflare-ai-search-chat-completions",
+        provider: `${providerId}-chat-completions`,
         answer: answer || "I could not find an answer in the docs.",
         sources: prefixResultUrls(sourceResultsFromChunks(response.chunks ?? []), basePath)
       });
     } catch (error) {
-      console.warn("Cloudflare AI Search chat completions failed, falling back to source results", error);
+      console.warn(`${providerId} chat completions failed, falling back to source results`, error);
     }
   }
 
@@ -493,7 +362,7 @@ function normalizeChatMessages(messages: Array<{ role?: string; content?: string
     }));
 }
 
-function sourceResultsFromChunks(chunks: AiSearchChunk[]) {
+function sourceResultsFromChunks(chunks: SearchChunk[]) {
   const seen = new Set<string>();
   return chunks.flatMap((chunk) => {
     const result = resultFromAiSearchChunk(chunk);
@@ -606,7 +475,7 @@ function renderShell(page: Page | undefined, url: URL, status = 200, initialThem
       <div class="chat-header">
         <div>
           <strong>Ask the docs</strong>
-          <span>Answers from Cloudflare AI Search</span>
+          <span>Answers from your documentation</span>
         </div>
         <button class="overlay-close" type="button" data-close-chat aria-label="Close chat"><span aria-hidden="true"></span></button>
       </div>
@@ -680,14 +549,19 @@ function absoluteUrl(path: string, origin: string): string {
 }
 
 function renderSearchIndexJson(basePath = ""): string {
-  return JSON.stringify(
+  const cached = searchIndexJsonByBasePath.get(basePath);
+  if (cached) return cached;
+
+  const rendered = JSON.stringify(
     pages.map((page) => ({
       title: page.title,
       url: routeWithBase(page.route, basePath),
       description: page.description,
-      text: excerpt(stripMdx(page.markdown), 1800)
+      text: excerpt(stripMdx(page.markdown.slice(0, 1200)), 360)
     }))
   ).replace(/</g, "\\u003c");
+  searchIndexJsonByBasePath.set(basePath, rendered);
+  return rendered;
 }
 
 function renderBrand(basePath = ""): string {
@@ -960,7 +834,7 @@ function renderLegacyNav(currentPath: string, basePath = ""): string {
 function renderSitemap(origin: string, basePath = ""): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${pages.map((page) => `  <url><loc>${escapeHtml(absoluteUrl(routeWithBase(page.route, basePath), origin))}</loc></url>`).join("\n")}
+${pages.map((page) => `  <url><loc>${escapeHtml(absoluteUrl(routeWithBase(page.route, basePath), origin))}</loc>${page.updatedAt ? `<lastmod>${escapeHtml(page.updatedAt)}</lastmod>` : ""}</url>`).join("\n")}
 </urlset>`;
 }
 
@@ -1180,11 +1054,11 @@ function clientScript(basePath = ""): string {
   }
 
   function renderAiResults(items) {
-    results.dataset.provider = 'cloudflare-ai-search';
+    results.dataset.provider = 'external-search';
     if (!items.length && results.innerHTML) return;
     const previousActiveIndex = activeResultIndex;
     results.innerHTML = items.length
-      ? renderResults(items, 'AI Search')
+      ? renderResults(items, 'Enhanced results')
       : '<p class="muted">No results found.</p>';
     setActiveResult(items.length ? previousActiveIndex : -1);
   }
@@ -1270,6 +1144,7 @@ function clientScript(basePath = ""): string {
 
   function setupPageTracking() {
     setupApiVariantMenus();
+    setupMdxTabs();
 
     const sidebar = document.querySelector('.sidebar');
     const activeSidebarLink = document.querySelector('.sidebar nav a.active');
@@ -1284,6 +1159,37 @@ function clientScript(basePath = ""): string {
     trackedHeadings = Array.from(document.querySelectorAll('.content h2[id], .content h3[id]'));
     trackedTocLinks = Array.from(document.querySelectorAll('.toc a[href^="#"]'));
     syncActiveSection();
+  }
+
+  function setupMdxTabs() {
+    document.querySelectorAll('[data-mdx-tabs]').forEach((group, groupIndex) => {
+      const buttons = Array.from(group.querySelectorAll('[data-mdx-tab-button]'));
+      const panels = Array.from(group.querySelectorAll('[data-mdx-tab-panel]'));
+      buttons.forEach((button, index) => {
+        const tabId = 'mdx-tab-' + groupIndex + '-' + index;
+        const panelId = 'mdx-panel-' + groupIndex + '-' + index;
+        button.id = tabId;
+        button.setAttribute('aria-controls', panelId);
+        panels[index]?.setAttribute('id', panelId);
+        panels[index]?.setAttribute('aria-labelledby', tabId);
+      });
+    });
+  }
+
+  function selectMdxTab(button, focus = false) {
+    const group = button.closest('[data-mdx-tabs]');
+    if (!group) return;
+    const selected = button.getAttribute('data-mdx-tab-button');
+    group.querySelectorAll('[data-mdx-tab-button]').forEach((candidate) => {
+      const active = candidate === button;
+      candidate.classList.toggle('active', active);
+      candidate.setAttribute('aria-selected', active ? 'true' : 'false');
+      candidate.setAttribute('tabindex', active ? '0' : '-1');
+    });
+    group.querySelectorAll('[data-mdx-tab-panel]').forEach((panel) => {
+      panel.toggleAttribute('hidden', panel.getAttribute('data-mdx-tab-panel') !== selected);
+    });
+    if (focus) button.focus();
   }
 
   function setupApiVariantMenus() {
@@ -1462,6 +1368,12 @@ function clientScript(basePath = ""): string {
   closeChatButton.addEventListener('click', closeChat);
   document.addEventListener('click', (event) => {
     const target = event.target instanceof Element ? event.target : undefined;
+    const tabButton = target?.closest('[data-mdx-tab-button]');
+    if (tabButton instanceof HTMLButtonElement) {
+      event.preventDefault();
+      selectMdxTab(tabButton);
+      return;
+    }
     const copyButton = target?.closest('[data-copy-value], [data-copy-code]');
     if (copyButton instanceof HTMLButtonElement) {
       event.preventDefault();
@@ -1555,6 +1467,17 @@ function clientScript(basePath = ""): string {
     }
   });
   document.addEventListener('keydown', (event) => {
+    const tabButton = event.target instanceof HTMLButtonElement ? event.target.closest('[data-mdx-tab-button]') : null;
+    if (tabButton instanceof HTMLButtonElement && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+      const buttons = Array.from(tabButton.closest('[data-mdx-tabs]')?.querySelectorAll('[data-mdx-tab-button]') || []);
+      const current = buttons.indexOf(tabButton);
+      const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (current + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length;
+      if (buttons[next] instanceof HTMLButtonElement) {
+        event.preventDefault();
+        selectMdxTab(buttons[next], true);
+      }
+      return;
+    }
     if ((event.key === '/' || ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k')) && document.activeElement !== input) {
       event.preventDefault();
       openSearch();
@@ -1578,7 +1501,7 @@ function css(): string {
   --bg: #fbfcfd; --surface: #ffffff; --surface-alt: #f3f6f8;
   --text: #17202a; --muted: #687483; --line: #dfe5ea;
   --primary: ${docsContent.site.colors.primary ?? "#0f766e"};
-  --code: #101923; --topbar-height: 104px; --sidebar-width: 286px; --toc-width: 220px; --radius: 8px;
+  --code: #101923; --topbar-height: 104px; --sidebar-width: 286px; --toc-width: 220px; --radius: 10px;
 }
 html[data-theme="dark"] {
   color-scheme: dark;
@@ -1587,7 +1510,7 @@ html[data-theme="dark"] {
 }
 * { box-sizing: border-box; }
 html { background: var(--bg); scroll-padding-top: calc(var(--topbar-height) + 24px); }
-body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.68 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14.5px/1.72 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
 a { color: inherit; text-decoration: none; }
 
 .topbar { position: sticky; top: 0; z-index: 20; height: var(--topbar-height); border-bottom: 1px solid var(--line); background: var(--surface); }
@@ -1617,7 +1540,7 @@ html[data-theme="dark"] .brand-logo-dark { display: block; }
 .theme-toggle svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .mobile-icons, .mobile-crumb { display: none; }
 
-.search-trigger, .mdx-card, .mdx-accordion, .mdx-tab, .mdx-code-group, .mdx-frame, .pager a, .search-dialog, .chat-dialog, .chat-message.assistant, .chat-form textarea, kbd { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.search-trigger, .mdx-card, .mdx-accordion, .mdx-expandable, .mdx-tabs, .mdx-code-group, .mdx-frame, .mdx-panel, .mdx-field, .mdx-example, .mdx-prompt, .mdx-tree, .pager a, .search-dialog, .chat-dialog, .chat-message.assistant, .chat-form textarea, kbd { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
 .search-trigger { width: 100%; height: 34px; justify-content: space-between; color: var(--muted); padding: 0 10px; font: inherit; cursor: pointer; }
 .top-search { position: absolute; left: 50%; top: 50%; width: min(420px, calc(100% - 560px)); height: 36px; background: var(--bg); font-size: 13px; transform: translate(-50%, -50%); }
 kbd { border-radius: 4px; padding: 0 5px; color: var(--muted); font: 10.5px ui-monospace, SFMono-Regular, Menlo, monospace; }
@@ -1631,36 +1554,37 @@ kbd { border-radius: 4px; padding: 0 5px; color: var(--muted); font: 10.5px ui-m
 .sidebar-anchor-icon { display: grid; place-items: center; color: var(--primary); }
 .sidebar-anchor-icon svg { width: 16px; height: 16px; }
 .sidebar nav, .sidebar nav section { min-width: 0; max-width: 100%; }
-.sidebar nav section + section { margin-top: 20px; }
-.sidebar nav h2 { margin: 0 0 7px; color: var(--muted); font-size: 12px; line-height: 1.35; font-weight: 700; text-transform: uppercase; }
+.sidebar nav section + section { margin-top: 24px; }
+.sidebar nav h2 { margin: 0 0 8px; color: var(--text); font-size: 12.5px; line-height: 1.35; font-weight: 720; }
 .sidebar nav h2 a { color: inherit; }
 .sidebar nav h2 a:hover { color: var(--text); }
 .sidebar nav .api-nav-section h2 { text-transform: none; font-size: 13px; }
-.sidebar nav a { display: block; max-width: 100%; border-left: 2px solid transparent; color: var(--muted); font-size: 13.5px; line-height: 1.45; padding: 6px 10px; overflow-wrap: anywhere; }
+.sidebar nav a { display: block; max-width: 100%; border-radius: 7px; color: var(--muted); font-size: 13.5px; line-height: 1.45; padding: 6px 10px; overflow-wrap: anywhere; transition: background-color .15s ease, color .15s ease; }
 .sidebar nav a.api-operation-link { display: grid; grid-template-columns: 54px minmax(0, 1fr); align-items: baseline; column-gap: 8px; }
 .api-nav-method { border-radius: 5px; padding: 3px 5px; color: white; text-align: center; white-space: nowrap; font: 700 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
-.sidebar nav a:hover { border-left-color: var(--line); color: var(--text); }
-.sidebar nav a.active { border-left-color: var(--primary); color: var(--text); font-weight: 680; }
+.sidebar nav a:hover { background: var(--surface-alt); color: var(--text); }
+.sidebar nav a.active { background: color-mix(in srgb, var(--primary) 10%, var(--surface)); color: var(--primary); font-weight: 690; }
 
-.main { min-width: 0; display: grid; grid-template-columns: minmax(0, 720px) var(--toc-width); gap: 72px; padding: 46px 0 80px 40px; }
+.main { min-width: 0; display: grid; grid-template-columns: minmax(0, 720px) var(--toc-width); gap: 72px; padding: 50px 0 96px 44px; }
 .doc { min-width: 0; max-width: 720px; }
 .eyebrow { margin: 0 0 10px; color: var(--primary); font-size: 13px; font-weight: 700; }
-h1 { margin: 0; color: var(--text); font-size: 32px; line-height: 1.18; letter-spacing: 0; font-weight: 760; }
-.description { margin: 12px 0 0; color: var(--muted); font-size: 17px; line-height: 1.58; }
-.content { margin-top: 34px; color: color-mix(in srgb, var(--text) 82%, var(--muted)); }
+h1 { margin: 0; color: var(--text); font-size: 34px; line-height: 1.16; letter-spacing: -.025em; font-weight: 760; }
+.description { margin: 13px 0 0; max-width: 640px; color: var(--muted); font-size: 17.5px; line-height: 1.6; }
+.content { margin-top: 38px; color: color-mix(in srgb, var(--text) 88%, var(--muted)); font-size: 15px; line-height: 1.72; }
 .content h2, .content h3 { color: var(--text); letter-spacing: 0; }
-.content h2 { margin: 42px 0 12px; padding-top: 4px; font-size: 21px; line-height: 1.35; font-weight: 720; }
-.content h3 { margin: 30px 0 10px; font-size: 17px; line-height: 1.45; font-weight: 700; }
-.content p, .content ul, .content ol { margin: 16px 0; }
+.content h2 { margin: 50px 0 15px; padding-top: 4px; font-size: 22px; line-height: 1.32; font-weight: 730; }
+.content h3 { margin: 36px 0 12px; font-size: 17.5px; line-height: 1.42; font-weight: 710; }
+.content p, .content ul, .content ol { margin: 18px 0; }
 .content ul, .content ol { padding-left: 1.45rem; }
-.content li { margin: 7px 0; padding-left: 2px; }
+.content li { margin: 8px 0; padding-left: 3px; }
 .content a { color: var(--primary); text-decoration: none; font-weight: 500; }
 .content a:hover { text-decoration: underline; text-underline-offset: 3px; }
 .content pre { overflow-x: auto; border: 1px solid color-mix(in srgb, var(--line) 70%, #000); border-radius: var(--radius); background: var(--code); color: #e5edf5; padding: 16px; line-height: 1.58; }
 .content code { border-radius: 4px; background: var(--surface-alt); color: var(--text); padding: 2px 5px; font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .content pre code { background: transparent; padding: 0; color: inherit; }
-.content table { display: block; width: 100%; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 20px 0; }
-.content th, .content td { border-bottom: 1px solid var(--line); padding: 9px 10px; text-align: left; vertical-align: top; }
+.content table { display: block; width: 100%; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 26px 0; font-size: 13.5px; line-height: 1.48; scrollbar-width: thin; }
+.content th, .content td { border-bottom: 1px solid var(--line); padding: 11px 10px; text-align: left; vertical-align: top; }
+.content th { color: var(--text); font-weight: 700; }
 .heading-anchor { text-decoration: none !important; color: inherit !important; }
 
 .api-doc { grid-column: 1 / -1; max-width: none; }
@@ -1708,49 +1632,121 @@ h1 { margin: 0; color: var(--text); font-size: 32px; line-height: 1.18; letter-s
 .copy-button-dark:hover { border-color: rgba(255, 255, 255, .28); color: #fff; }
 .copy-button-dark.copied { border-color: rgba(20, 184, 166, .58); color: #7dd3c7; }
 
-.mdx-card-group, .mdx-tabs, .mdx-columns { display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: 12px; margin: 22px 0; }
-.mdx-tabs { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin: 20px 0; }
-.mdx-card, .mdx-tab, .mdx-accordion, .mdx-code-group, .mdx-frame, .pager a { padding: 14px; }
-.mdx-card { position: relative; min-height: 156px; display: block; padding: 18px; text-decoration: none !important; transition: border-color .15s ease, background-color .15s ease; }
+.sr-only { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+.mdx-card-group, .mdx-columns, .mdx-tile-group { display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: 14px; margin: 26px 0; }
+.mdx-card, .mdx-accordion, .mdx-expandable, .mdx-frame, .mdx-panel, .mdx-prompt, .mdx-tree, .pager a { padding: 14px; }
+.mdx-card { position: relative; min-height: 166px; display: block; padding: 20px; border-radius: 12px; text-decoration: none !important; box-shadow: 0 1px 2px rgba(15, 23, 42, .025); transition: border-color .15s ease, background-color .15s ease, box-shadow .15s ease, transform .15s ease; }
 .mdx-card-group[data-cols="1"] .mdx-card, .content > .mdx-card { min-height: 112px; }
 .mdx-card[href]::after { content: ""; position: absolute; right: 18px; top: 20px; width: 7px; height: 7px; border-top: 1.5px solid var(--muted); border-right: 1.5px solid var(--muted); transform: rotate(45deg); }
-.mdx-card:hover { border-color: color-mix(in srgb, var(--primary) 42%, var(--line)); background: color-mix(in srgb, var(--primary) 3%, var(--surface)); }
-.mdx-card-icon { display: grid; place-items: center; width: 32px; height: 32px; margin-bottom: 16px; border: 1px solid color-mix(in srgb, currentColor 20%, transparent); border-radius: 8px; background: color-mix(in srgb, currentColor 10%, transparent); color: var(--primary); }
+.mdx-card:hover { border-color: color-mix(in srgb, var(--primary) 38%, var(--line)); background: color-mix(in srgb, var(--primary) 3%, var(--surface)); box-shadow: 0 8px 24px rgba(15, 23, 42, .07); transform: translateY(-1px); }
+.mdx-card-icon { display: grid; place-items: center; width: 34px; height: 34px; margin-bottom: 17px; border: 1px solid color-mix(in srgb, currentColor 18%, transparent); border-radius: 9px; background: color-mix(in srgb, currentColor 9%, transparent); color: var(--primary); }
 .mdx-card-icon svg { display: block; width: 18px; height: 18px; }
 .mdx-card strong, .mdx-card div { display: block; }
-.mdx-card strong { color: var(--text); font-weight: 680; }
-.mdx-card div { margin-top: 7px; color: var(--muted); font-size: 13.5px; line-height: 1.55; }
+.mdx-card strong { color: var(--text); font-weight: 700; }
+.mdx-card div { margin-top: 8px; color: color-mix(in srgb, var(--muted) 92%, var(--text)); font-size: 14px; line-height: 1.58; }
 .mdx-card div p { margin: 0; }
 
-.mdx-callout { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); padding: 13px 16px; margin: 20px 0; }
-.mdx-callout > strong { display: none; }
-.mdx-callout p:first-child, .mdx-tab h3, .mdx-update h2 { margin-top: 0; }
+.mdx-callout { --callout-color: var(--primary); display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 11px; border: 1px solid color-mix(in srgb, var(--callout-color) 25%, var(--line)); border-radius: var(--radius); background: color-mix(in srgb, var(--callout-color) 7%, var(--surface)); padding: 13px 16px; margin: 20px 0; }
+.mdx-callout-info { --callout-color: #3b82f6; }
+.mdx-callout-note { --callout-color: #64748b; }
+.mdx-callout-tip { --callout-color: #8b5cf6; }
+.mdx-callout-warning { --callout-color: #d97706; }
+.mdx-callout-check { --callout-color: #059669; }
+.mdx-callout-danger { --callout-color: #dc2626; }
+.mdx-callout-icon { display: grid; place-items: center; align-self: start; width: 20px; height: 20px; margin-top: 2px; color: var(--callout-color); }
+.mdx-callout-icon svg { width: 17px; height: 17px; }
+.mdx-callout p:first-child, .mdx-update h2 { margin-top: 0; }
 .mdx-callout p:last-child { margin-bottom: 0; }
-.mdx-accordion { margin: 12px 0; }
-.mdx-accordion summary { cursor: pointer; font-weight: 650; }
-.mdx-code-group { padding: 10px; margin: 20px 0; }
-.mdx-code-group pre, .mdx-card div p { margin: 0; }
+.mdx-accordion, .mdx-expandable { margin: 11px 0; padding: 0; overflow: clip; }
+.mdx-accordion summary, .mdx-expandable summary { position: relative; cursor: pointer; list-style: none; color: var(--text); font-weight: 670; padding: 15px 46px 15px 17px; }
+.mdx-accordion summary::-webkit-details-marker, .mdx-expandable summary::-webkit-details-marker { display: none; }
+.mdx-accordion summary::after, .mdx-expandable summary::after { content: "+"; position: absolute; right: 16px; top: 50%; color: var(--muted); font-size: 19px; font-weight: 400; transform: translateY(-50%); }
+.mdx-accordion[open] summary::after, .mdx-expandable[open] summary::after { content: "−"; }
+.mdx-accordion > div, .mdx-expandable > div { border-top: 1px solid var(--line); padding: 4px 16px 14px; }
+.mdx-accordion-group { margin: 20px 0; }
+.mdx-expandable { border-style: dashed; }
+.mdx-expandable summary { color: var(--primary); font-size: 13px; }
+.mdx-tabs { overflow: hidden; margin: 20px 0; }
+.mdx-tab-list { display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--line); background: var(--surface-alt); padding: 7px 8px 0; scrollbar-width: none; }
+.mdx-tab-list::-webkit-scrollbar { display: none; }
+.mdx-tab-button { position: relative; flex: 0 0 auto; border: 0; background: transparent; color: var(--muted); padding: 8px 11px 10px; font: 650 12.5px/1.2 ui-sans-serif, system-ui, sans-serif; cursor: pointer; }
+.mdx-tab-button::after { content: ""; position: absolute; left: 8px; right: 8px; bottom: 0; height: 2px; border-radius: 2px 2px 0 0; background: transparent; }
+.mdx-tab-button:hover, .mdx-tab-button.active { color: var(--text); }
+.mdx-tab-button.active::after { background: var(--primary); }
+.mdx-tab-button:focus-visible { outline: 2px solid color-mix(in srgb, var(--primary) 30%, transparent); outline-offset: -2px; border-radius: 5px; }
+.mdx-tab-panel { padding: 16px; }
+.mdx-tab-panel[hidden] { display: none; }
+.mdx-tab-panel > :first-child { margin-top: 0; }
+.mdx-tab-panel > :last-child { margin-bottom: 0; }
+.mdx-code-group { padding: 0; margin: 20px 0; }
+.mdx-code-group:not(.mdx-tabs) { padding: 10px; }
+.mdx-code-group pre, .mdx-card div p, .mdx-tab-panel pre { margin: 0; }
 .mdx-code-group pre + pre { margin-top: 10px; }
 
 .mdx-steps { counter-reset: steps; list-style: none; padding-left: 0; }
-.mdx-steps li { position: relative; padding-left: 42px; padding-bottom: 18px; }
+.mdx-steps li { position: relative; padding-left: 46px; padding-bottom: 24px; }
 .mdx-steps li::before { counter-increment: steps; content: counter(steps); position: absolute; left: 0; top: 2px; display: grid; place-items: center; width: 26px; height: 26px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--primary); font-weight: 720; font-size: 13px; }
 .mdx-steps li::after { content: ""; position: absolute; left: 12px; top: 32px; bottom: 0; width: 1px; background: var(--line); }
 .mdx-steps li:last-child::after { display: none; }
+.mdx-steps li > strong { display: block; margin: 1px 0 7px; color: var(--text); font-size: 15px; }
+.mdx-steps li > div > :first-child { margin-top: 0; }
+.mdx-steps li > div > :last-child { margin-bottom: 0; }
+.mdx-frame { margin: 22px 0; padding: 8px; text-align: center; }
+.mdx-frame > img, .mdx-frame > video { display: block; max-width: 100%; height: auto; border-radius: 5px; }
+.mdx-frame figcaption { padding: 8px 6px 1px; color: var(--muted); font-size: 12px; }
+.mdx-column > :first-child, .mdx-panel > div > :first-child { margin-top: 0; }
+.mdx-column > :last-child, .mdx-panel > div > :last-child { margin-bottom: 0; }
+.mdx-panel { margin: 20px 0; background: var(--surface-alt); }
+.mdx-panel > strong { display: flex; align-items: center; gap: 7px; margin-bottom: 6px; color: var(--text); }
+.mdx-inline-icon, .mdx-icon { display: inline-grid; place-items: center; vertical-align: -.18em; }
+.mdx-inline-icon svg, .mdx-icon svg { width: 1em; height: 1em; }
+.mdx-banner { border-left: 3px solid var(--primary); border-radius: 0 var(--radius) var(--radius) 0; background: color-mix(in srgb, var(--primary) 8%, var(--surface)); padding: 12px 15px; margin: 20px 0; }
+.mdx-banner > :first-child { margin-top: 0; }
+.mdx-banner > :last-child { margin-bottom: 0; }
+.mdx-badge { --badge-color: var(--primary); display: inline-flex; align-items: center; border: 1px solid color-mix(in srgb, var(--badge-color) 28%, var(--line)); border-radius: 999px; background: color-mix(in srgb, var(--badge-color) 9%, var(--surface)); color: var(--badge-color); padding: 2px 7px; font-size: 11px; line-height: 1.3; font-weight: 700; vertical-align: .08em; }
+.mdx-tooltip { position: relative; border-bottom: 1px dotted var(--muted); cursor: help; }
+.mdx-tooltip:hover::after, .mdx-tooltip:focus::after { content: attr(data-tooltip); position: absolute; z-index: 5; left: 50%; bottom: calc(100% + 8px); width: max-content; max-width: 240px; border: 1px solid var(--line); border-radius: 6px; background: var(--text); color: var(--surface); padding: 6px 8px; font-size: 12px; line-height: 1.4; transform: translateX(-50%); box-shadow: 0 8px 24px rgba(0,0,0,.18); }
+.mdx-color { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 7px; padding: 5px 9px 5px 5px; }
+.mdx-color-swatch { width: 22px; height: 22px; border: 1px solid color-mix(in srgb, var(--text) 18%, transparent); border-radius: 5px; }
+.mdx-tile { display: grid; place-items: center; min-height: 116px; gap: 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--text) !important; padding: 16px; text-align: center; text-decoration: none !important; }
+.mdx-tile:hover { border-color: color-mix(in srgb, var(--primary) 42%, var(--line)); background: color-mix(in srgb, var(--primary) 3%, var(--surface)); }
+.mdx-tile-icon { display: grid; place-items: center; color: var(--primary); }
+.mdx-tile-icon svg { width: 24px; height: 24px; }
+.mdx-field { margin: 12px 0; padding: 14px 16px; }
+.mdx-field-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.mdx-field-heading > code { background: transparent; padding: 0; color: var(--text); font-weight: 700; }
+.mdx-field-type { color: var(--primary); font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.mdx-field.deprecated { opacity: .72; }
+.mdx-field.deprecated .mdx-field-heading > code { text-decoration: line-through; }
+.mdx-field-default { margin-top: 6px; color: var(--muted); font-size: 12px; }
+.mdx-field-body > :first-child { margin-top: 8px; }
+.mdx-field-body > :last-child { margin-bottom: 0; }
+.mdx-example { margin: 20px 0; overflow: hidden; }
+.mdx-example > strong { display: block; border-bottom: 1px solid var(--line); background: var(--surface-alt); padding: 9px 12px; color: var(--muted); font-size: 12px; }
+.mdx-example > .mdx-code-group { margin: -1px; border-radius: 0; }
+.mdx-tree { margin: 20px 0; font: 13px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.mdx-tree ul { margin: 0; padding-left: 20px; list-style: none; }
+.mdx-tree > ul { padding-left: 0; }
+.mdx-tree li { margin: 2px 0; padding-left: 0; }
+.mdx-tree-folder > span { color: var(--text); font-weight: 650; }
+.mdx-tree-file > span { color: var(--muted); }
+.mdx-prompt { position: relative; margin: 20px 0; overflow: hidden; }
+.mdx-prompt > strong { display: block; border-bottom: 1px solid var(--line); background: var(--surface-alt); padding: 9px 13px; }
+.mdx-prompt > div { padding: 2px 14px; }
 .mdx-update { position: relative; display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 16px; margin: 34px 0; }
 .mdx-update::before { content: ""; position: absolute; left: 6px; top: 18px; bottom: -22px; width: 2px; background: var(--line); }
 .mdx-update-marker { position: relative; z-index: 1; width: 14px; height: 14px; margin-top: 8px; border-radius: 50%; background: var(--primary); box-shadow: 0 0 0 5px var(--bg); }
 .mdx-update-description { margin-top: -6px; color: var(--muted); font-weight: 650; }
 
-.pager { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 56px; padding-top: 28px; border-top: 1px solid var(--line); }
-.pager a { font-weight: 650; }
-.pager a:hover { border-color: color-mix(in srgb, var(--primary) 36%, var(--line)); }
+.pager { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 72px; padding-top: 30px; border-top: 1px solid var(--line); }
+.pager a { min-height: 74px; padding: 16px 18px; border-radius: 12px; font-weight: 670; transition: border-color .15s ease, background-color .15s ease, transform .15s ease; }
+.pager a:hover { border-color: color-mix(in srgb, var(--primary) 34%, var(--line)); background: color-mix(in srgb, var(--primary) 3%, var(--surface)); transform: translateY(-1px); }
 .pager a:last-child { text-align: right; }
 .pager span { display: block; color: var(--muted); font-size: 12px; font-weight: 500; }
 
-.toc { position: sticky; top: calc(var(--topbar-height) + 30px); height: fit-content; max-height: calc(100vh - var(--topbar-height) - 60px); overflow-y: auto; border-left: 1px solid var(--line); padding-left: 16px; color: var(--muted); font-size: 12.5px; }
-.toc p { margin: 0 0 10px; color: var(--text); font-weight: 680; }
-.toc a { display: block; padding: 4px 0; color: var(--muted); line-height: 1.45; }
+.toc { position: sticky; top: calc(var(--topbar-height) + 30px); height: fit-content; max-height: calc(100vh - var(--topbar-height) - 60px); overflow-y: auto; border-left: 1px solid var(--line); padding-left: 18px; color: var(--muted); font-size: 13px; }
+.toc p { margin: 0 0 11px; color: var(--text); font-weight: 700; }
+.toc a { display: block; padding: 4px 0; color: var(--muted); line-height: 1.5; }
 .toc a:hover, .toc a.active { color: var(--primary); }
 .toc a.active { font-weight: 680; }
 .toc .depth-3 { padding-left: 12px; }
@@ -1779,7 +1775,7 @@ h1 { margin: 0; color: var(--text); font-size: 32px; line-height: 1.18; letter-s
 .muted { padding: 12px; margin: 0; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.chat-launcher { position: fixed; right: 22px; bottom: 22px; z-index: 9; height: 38px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--text); padding: 0 14px; font: inherit; font-weight: 680; cursor: pointer; }
+.chat-launcher { position: fixed; right: 22px; bottom: 22px; z-index: 9; height: 42px; border: 1px solid color-mix(in srgb, var(--primary) 20%, var(--line)); border-radius: 999px; background: var(--surface); color: var(--text); padding: 0 17px; box-shadow: 0 8px 26px rgba(15, 23, 42, .11); font: inherit; font-weight: 680; cursor: pointer; }
 .chat-launcher:hover { border-color: color-mix(in srgb, var(--primary) 38%, var(--line)); color: var(--primary); }
 .chat-panel { position: fixed; right: 22px; bottom: 76px; z-index: 11; width: min(420px, calc(100vw - 32px)); }
 .chat-header { justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--line); padding: 14px 16px; }
@@ -1836,17 +1832,21 @@ html[data-theme="dark"] .search-panel { background: rgba(0, 0, 0, .52); }
   .mobile-nav-open .mobile-nav-overlay { display: block; position: fixed; inset: var(--topbar-height) 0 0; z-index: 80; background: rgba(15, 23, 42, .34); backdrop-filter: blur(2px); }
   .mobile-nav-open .sidebar { display: block; position: fixed; z-index: 90; left: 0; top: var(--topbar-height); width: min(84vw, 320px); max-width: 100vw; height: calc(100vh - var(--topbar-height)); border-right: 1px solid var(--line); background: var(--bg); padding: 20px 20px 28px; box-shadow: 18px 0 36px rgba(15, 23, 42, .18); }
   .sidebar > .search-trigger { display: flex; }
-  .main { display: block; padding: 40px 20px 64px; }
-  h1 { font-size: 26px; line-height: 1.25; }
-  .description { font-size: 17px; }
-  .content { margin-top: 36px; }
-  .mdx-card-group, .mdx-tabs, .mdx-columns, .pager { grid-template-columns: 1fr; }
+  .main { display: block; padding: 42px 20px 72px; }
+  h1 { font-size: 28px; line-height: 1.22; }
+  .description { font-size: 16.5px; line-height: 1.58; }
+  .content { margin-top: 38px; font-size: 14.5px; line-height: 1.7; }
+  .content h2 { margin-top: 44px; font-size: 21px; }
+  .content h3 { margin-top: 32px; }
+  .mdx-card-group, .mdx-columns, .mdx-tile-group, .pager { grid-template-columns: 1fr; }
   .api-reference-page { display: block; }
   .api-example-panel { margin-top: 28px; }
   .api-route-row { align-items: flex-start; flex-direction: column; }
   .api-route-row code { white-space: nowrap; max-width: 100%; overflow-x: auto; }
-  .mdx-card { min-height: 132px; }
-  .content > .mdx-card { min-height: 124px; }
+  .mdx-card { min-height: 148px; padding: 18px; }
+  .content > .mdx-card { min-height: 136px; }
+  .content table { font-size: 12.5px; }
+  .content th, .content td { padding: 10px 9px; }
   .pager a:last-child { text-align: left; }
   .search-panel { padding: 72px 12px 18px; }
   .search-dialog { width: 100%; max-width: 640px; }

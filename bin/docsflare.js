@@ -56,7 +56,21 @@ async function main() {
     const contentDir = resolveContentDir(options);
     const config = resolveDeploymentConfig(contentDir);
     await buildContent(contentDir, options, config);
-    await runTool("wrangler", wranglerArgsWithConfig(["dev"], options, config, contentDir), { contentDir, inherit: true, config });
+    const platform = resolvePlatform(options, config);
+    if (platform === "cloudflare") {
+      await runTool("wrangler", wranglerArgsWithConfig(["dev"], options, config, contentDir), { contentDir, inherit: true, config });
+    } else {
+      await runNodeServer(contentDir, config);
+    }
+    return;
+  }
+
+  if (command === "start") {
+    const options = parseOptions(args.slice(1));
+    const contentDir = resolveContentDir(options);
+    const config = resolveDeploymentConfig(contentDir);
+    await buildContent(contentDir, options, config);
+    await runNodeServer(contentDir, config);
     return;
   }
 
@@ -69,18 +83,6 @@ async function main() {
     return;
   }
 
-  if (command === "search") {
-    const subcommand = args[1] ?? "sync";
-    if (subcommand !== "sync") {
-      throw new Error(`Unknown search command "${subcommand}". Try "docsflare search sync --url <url>".`);
-    }
-
-    const options = parseOptions(args.slice(2));
-    const config = searchSyncConfig(options);
-    await syncSearch(config);
-    return;
-  }
-
   throw new Error(`Unknown command "${command}". Run "docsflare help" for usage.`);
 }
 
@@ -90,44 +92,13 @@ async function build(contentDir, options, config) {
 }
 
 async function buildContent(contentDir, options = {}, config = resolveDeploymentConfig(contentDir)) {
-  await runTool("tsx", ["scripts/build-content.ts"], { contentDir, config: configWithOptionOverrides(config, options) });
-  writeWorkerRuntime(contentDir);
+  await runTool("node", ["--import", "tsx", "scripts/build-content.ts"], { contentDir, config: configWithOptionOverrides(config, options) });
+  writeWorkerRuntime(contentDir, configWithOptionOverrides(config, options));
 }
 
-function searchSyncConfig(options) {
-  const positionalUrl = isHttpUrl(options.positional[0]) ? options.positional[0] : undefined;
-  const contentDir = positionalUrl ? projectRoot : resolveContentDir(options);
-  const config = positionalUrl ? projectConfig : resolveDeploymentConfig(contentDir);
-  const url = options.url ?? positionalUrl ?? process.env.DOCSFLARE_SEARCH_SYNC_URL ?? config.searchSyncUrl ?? config.search?.syncUrl;
-  if (!url) {
-    throw new Error("Missing search sync URL. Pass --url https://example.com/docs, pass the URL positionally, set DOCSFLARE_SEARCH_SYNC_URL, or set searchSyncUrl in docsflare.config.json.");
-  }
-  return { url: normalizeSearchSyncUrl(url) };
-}
-
-async function syncSearch(config) {
-  let lastError;
-
-  for (let attempt = 1; attempt <= 5; attempt += 1) {
-    try {
-      const response = await fetch(config.url, {
-        method: "POST",
-        headers: { accept: "application/json" }
-      });
-      const body = await response.text();
-
-      if (body) console.log(body);
-      if (response.ok) return;
-      lastError = new Error(`Search sync failed with HTTP ${response.status} for ${config.url}.`);
-      if (response.status < 500 && response.status !== 429) break;
-    } catch (error) {
-      lastError = error;
-    }
-
-    if (attempt < 5) await sleep(attempt * 1000);
-  }
-
-  throw lastError instanceof Error ? lastError : new Error(`Search sync failed for ${config.url}.`);
+function cloudflareAiSearchConfig(config) {
+  const value = config.cloudflare?.aiSearch;
+  return value && typeof value === "object" ? value : undefined;
 }
 
 function parseOptions(rawArgs) {
@@ -146,13 +117,13 @@ function parseOptions(rawArgs) {
       continue;
     }
 
-    if (arg === "--url") {
-      options.url = requireValue(rawArgs, ++index, arg);
+    if (arg === "--base-path") {
+      options.basePath = requireValue(rawArgs, ++index, arg);
       continue;
     }
 
-    if (arg === "--base-path") {
-      options.basePath = requireValue(rawArgs, ++index, arg);
+    if (arg === "--platform") {
+      options.platform = requireValue(rawArgs, ++index, arg);
       continue;
     }
 
@@ -169,23 +140,6 @@ function parseOptions(rawArgs) {
   }
 
   return options;
-}
-
-function isHttpUrl(value) {
-  return typeof value === "string" && /^https?:\/\//.test(value);
-}
-
-function normalizeSearchSyncUrl(value) {
-  if (!isHttpUrl(value)) throw new Error(`Search sync URL must start with http:// or https://: ${value}`);
-  const url = new URL(value);
-  if (!url.pathname.replace(/\/$/, "").endsWith("/api/search/sync")) {
-    url.pathname = `${url.pathname.replace(/\/$/, "")}/api/search/sync`;
-  }
-  return url.toString();
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function requireValue(rawArgs, index, option) {
@@ -251,6 +205,14 @@ function configWithOptionOverrides(config, options) {
   };
 }
 
+function resolvePlatform(options, config) {
+  const platform = options.platform ?? config.platform ?? "cloudflare";
+  if (platform !== "cloudflare" && platform !== "node") {
+    throw new Error(`Unsupported platform "${platform}". Use "cloudflare" or "node".`);
+  }
+  return platform;
+}
+
 function runtimeBasePathForConfig(config) {
   return typeof config.basePath === "string" ? config.basePath : undefined;
 }
@@ -272,9 +234,17 @@ async function runTool(name, args, options) {
       ...process.env,
       DOCSFLARE_CONTENT_DIR: options.contentDir,
       DOCSFLARE_OUTPUT_DIR: docsflareOutputDir(options.contentDir),
-      ...(name === "tsx" ? buildEnvForConfig(options.config ?? {}) : {}),
+      ...(name === "node" ? buildEnvForConfig(options.config ?? {}) : {}),
       ...(options.extraEnv ?? {})
     }
+  });
+}
+
+async function runNodeServer(contentDir, config) {
+  await runTool("node", ["--import", "tsx", path.join(docsflareOutputDir(contentDir), "node-server.ts")], {
+    contentDir,
+    inherit: true,
+    config
   });
 }
 
@@ -330,23 +300,46 @@ function hasWranglerConfig(contentDir) {
   return ["wrangler.jsonc", "wrangler.json", "wrangler.toml"].some((filename) => existsSync(path.join(contentDir, filename)));
 }
 
-function writeWorkerRuntime(contentDir) {
+function writeWorkerRuntime(contentDir, config = {}) {
   const outputDir = docsflareOutputDir(contentDir);
   mkdirSync(outputDir, { recursive: true });
   writeFileSync(path.join(outputDir, "worker.ts"), readFileSync(path.join(packageRoot, "src", "worker.ts"), "utf8"));
-  writeFileSync(path.join(outputDir, "wrangler.jsonc"), `${JSON.stringify({
+  writeFileSync(path.join(outputDir, "node-server.ts"), readFileSync(path.join(packageRoot, "src", "node-server.ts"), "utf8"));
+  writeFileSync(path.join(outputDir, "wrangler.jsonc"), `${JSON.stringify(generatedWranglerConfig(config), null, 2)}\n`);
+}
+
+function generatedWranglerConfig(config) {
+  const aiSearch = cloudflareAiSearchConfig(config);
+  const binding = aiSearch?.instance ? {
+    binding: "AI_SEARCH",
+    instance_name: aiSearch.instance,
+    remote: true
+  } : undefined;
+  const observability = {
+    enabled: true,
+    logs: {
+      enabled: true,
+      head_sampling_rate: 0.1
+    },
+    traces: {
+      enabled: true,
+      head_sampling_rate: 0.05
+    }
+  };
+  return {
     name: "docsflare",
     main: "worker.ts",
-    compatibility_date: "2026-03-27",
-    observability: {
-      enabled: true
-    },
+    compatibility_date: "2026-07-16",
+    observability,
+    ...(binding ? { ai_search: [binding] } : {}),
     env: {
       production: {
-        name: "docsflare"
+        name: "docsflare",
+        observability,
+        ...(binding ? { ai_search: [binding] } : {})
       }
     }
-  }, null, 2)}\n`);
+  };
 }
 
 function initProject(options) {
@@ -531,22 +524,27 @@ function printHelp() {
 Usage:
   docsflare init [content-dir] [--force]
   docsflare dev [content-dir]
+  docsflare start [content-dir]
   docsflare build [content-dir]
   docsflare deploy [content-dir] [--env production]
-  docsflare search sync --url https://example.com/docs
   docsflare doctor [content-dir]
 
 Options:
   -c, --content-dir <dir>  Content directory. Defaults to the current docs root.
   --env <name>            Wrangler environment for deploy. Defaults to production.
-  --url <url>             Deployed docs URL or full /api/search/sync URL.
   --base-path <path>      Optional mounted path, such as /docs.
+  --platform <target>     Runtime for dev: cloudflare (default) or node.
   --force                 Allow init to overwrite starter files.
 
 docsflare.config.json:
   {
     "basePath": "/docs",
-    "searchSyncUrl": "https://example.com/docs"
+    "platform": "cloudflare",
+    "cloudflare": {
+      "aiSearch": {
+        "instance": "my-docs"
+      }
+    }
   }`);
 }
 

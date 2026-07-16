@@ -1,6 +1,8 @@
 # Docsflare
 
-Docsflare is a CLI-driven documentation renderer for Cloudflare Workers. Point it at a Mintlify-style docs directory, and it builds a Worker that serves rendered Markdown/MDX pages, static assets, search, chat, sitemap, robots.txt, and llms.txt.
+Docsflare is a portable, CLI-driven documentation renderer. Point it at a Mintlify-style docs directory and it builds a standard Fetch API application that serves rendered Markdown/MDX pages, static assets, search, chat, sitemap, robots.txt, and llms.txt.
+
+Cloudflare Workers is the preferred and best-supported deployment target. The same generated application also includes a Node.js server adapter, and its exported request handler can be integrated with other Fetch-compatible edge runtimes.
 
 The intended workflow inside a docs content repo is:
 
@@ -10,12 +12,13 @@ docsflare build
 docsflare deploy
 ```
 
-This repo includes starter content in `docs/` so the project can run immediately after install. In a real docs repo, Docsflare generates a temporary Worker project in `.docsflare/` and Wrangler deploys that generated Worker.
+This repo includes starter content in `docs/` so the project can run immediately after install. In a real docs repo, Docsflare generates portable runtime files in `.docsflare/`. Wrangler can deploy the Fetch handler directly, while other hosts can run or adapt the Node.js entrypoint.
 
 ## Features
 
-- `docsflare` CLI for init, dev, build, deploy, search sync, and doctor checks
-- Cloudflare Workers runtime
+- `docsflare` CLI for init, dev, build, deploy, start, and doctor checks
+- Standard Fetch API request handler
+- First-party Cloudflare Workers and Node.js runtime paths
 - Markdown and MDX pages rendered at build time
 - `docs.json` and `mint.json` navigation compatibility
 - Common Mintlify-style MDX components such as cards, tabs, accordions, and callouts
@@ -27,8 +30,7 @@ This repo includes starter content in `docs/` so the project can run immediately
 
 - Node.js 20 or newer
 - npm
-- A Cloudflare account for deployment
-- Wrangler authentication for deployment:
+- A Cloudflare account and Wrangler authentication only when deploying to Cloudflare:
 
 ```bash
 npx wrangler login
@@ -54,7 +56,13 @@ That script calls:
 docsflare dev docs
 ```
 
-Wrangler prints the local URL, usually `http://localhost:8787`.
+Wrangler prints the local URL, usually `http://localhost:8787`. To use Node.js instead:
+
+```bash
+docsflare dev docs --platform node
+```
+
+The Node adapter listens on `HOST` and `PORT`, defaulting to `127.0.0.1:3000`.
 
 Run project checks:
 
@@ -68,9 +76,9 @@ npm run build
 ```bash
 docsflare init [content-dir] [--force]
 docsflare dev [content-dir]
+docsflare start [content-dir]
 docsflare build [content-dir]
 docsflare deploy [content-dir] [--env production]
-docsflare search sync --url https://example.com/docs
 docsflare doctor [content-dir]
 ```
 
@@ -102,11 +110,12 @@ docsflare dev
 │   └── build-content.ts        # Converts docs config, MDX, and assets into generated content
 ├── src/
 │   ├── content.ts             # Placeholder content used for typechecking
-│   └── worker.ts              # Cloudflare Worker router and renderer copied into .docsflare
+│   ├── worker.ts              # Portable Fetch handler copied into .docsflare
+│   └── node-server.ts         # Node.js adapter copied into .docsflare
 └── wrangler.jsonc             # Local example Worker config
 ```
 
-`.docsflare/content.ts`, `.docsflare/worker.ts`, and `.docsflare/wrangler.jsonc` are produced from the docs content. Rebuild after changing docs pages, navigation, or static assets.
+`.docsflare/content.ts`, `.docsflare/worker.ts`, `.docsflare/node-server.ts`, and `.docsflare/wrangler.jsonc` are produced from the docs content. Rebuild after changing docs pages, navigation, or static assets.
 
 ## Start A New Docs Site
 
@@ -135,10 +144,11 @@ docsflare build ../my-docs
 
 ## Use In A Docs Repo
 
-Install Docsflare and Wrangler in the docs repo:
+Install Docsflare in the docs repo. Add Wrangler when Cloudflare is your deployment target:
 
 ```bash
-npm install --save-dev github:qaml-ai/docsflare wrangler
+npm install --save-dev github:qaml-ai/docsflare
+npm install --save-dev wrangler # Cloudflare only
 ```
 
 Add scripts:
@@ -148,8 +158,7 @@ Add scripts:
   "scripts": {
     "dev": "docsflare dev",
     "build": "docsflare build",
-    "deploy": "docsflare deploy",
-    "search:sync": "docsflare search sync"
+    "deploy": "docsflare deploy"
   }
 }
 ```
@@ -171,7 +180,12 @@ You can add `docsflare.config.json` in the current project or in the content dir
 ```json
 {
   "basePath": "/docs",
-  "searchSyncUrl": "https://example.com/docs"
+  "platform": "cloudflare",
+  "cloudflare": {
+    "aiSearch": {
+      "instance": "my-docs"
+    }
+  }
 }
 ```
 
@@ -202,7 +216,7 @@ Pages can use frontmatter:
 ```mdx
 ---
 title: Quickstart
-description: Run the local worker and deploy the generated docs site.
+description: Run the docs application locally and deploy the generated site.
 ---
 
 # Quickstart
@@ -214,57 +228,60 @@ Routes are derived from file paths unless a page sets `path` in frontmatter. For
 
 Supported built-in MDX components:
 
-- `CardGroup`
-- `Card`
-- `Info`, `Note`, `Tip`, `Warning`, `Check`
+- `CardGroup`, `Card`, `Columns`, `Column`
+- `Info`, `Note`, `Tip`, `Warning`, `Check`, `Danger`, `Callout`
 - `Accordion`, `AccordionGroup`
+- `Expandable`
 - `Tabs`, `Tab`
 - `Steps`, `Step`
 - `Frame`
 - `CodeGroup`
-- `Columns`
+- `Panel`, `Banner`, `Badge`, `Tooltip`
+- `Icon`, `Color`
+- `Tile`, `TileGroup`
+- `ParamField`, `ResponseField`
+- `RequestExample`, `ResponseExample`
+- `Tree`, `TreeRoot`, `TreeFolder`, `TreeFile`
+- `Prompt`, `View`, `Visibility`
 - `Update`
+
+Tabs and multi-example code groups include keyboard-accessible client-side switching. All tab content remains present in the generated HTML for indexing.
 
 ## Search And Chat
 
-Local development works without Cloudflare AI Search. When the `DOCS_SEARCH` binding is missing, `/api/search` uses an in-memory search over the generated pages and `/api/chat` returns relevant source pages instead of an AI-generated answer.
+Every runtime works without an external search service: `/api/search` uses an in-memory index over the generated pages and `/api/chat` returns relevant source pages. Runtime adapters may supply a provider as `env.SEARCH`; Cloudflare uses the optional `env.AI_SEARCH` instance binding.
 
-Production can use Cloudflare AI Search through the `DOCS_SEARCH` binding in the docs repo's `wrangler.jsonc`:
+Create a Cloudflare AI Search website data source once:
+
+```bash
+npx wrangler ai-search create my-docs \
+  --type web-crawler \
+  --source docs.example.com \
+  --hybrid-search \
+  --cache \
+  --custom-metadata title:text \
+  --custom-metadata description:text
+```
+
+Then reference the instance:
 
 ```json
 {
-  "env": {
-    "production": {
-      "ai_search": [
-        {
-          "binding": "DOCS_SEARCH",
-          "instance_name": "docsflare-docs"
-        }
-      ]
+  "cloudflare": {
+    "aiSearch": {
+      "instance": "my-docs"
     }
   }
 }
 ```
 
-After deployment, the Worker can lazily sync AI Search through the `DOCS_SEARCH` binding:
+Cloudflare crawls the generated sitemap and runs scheduled synchronization jobs. The sitemap includes `<lastmod>` timestamps so changed pages can be refreshed efficiently. Docsflare does not expose an indexing endpoint or maintain synchronization state; use `wrangler ai-search stats` and `wrangler ai-search jobs` directly when needed.
 
-```bash
-curl -fsS -X POST https://example.com/docs/api/search/sync
-```
+For a complete bootstrap sequence, verification commands, project-owned Wrangler configuration, troubleshooting, and agent guardrails, see the [Cloudflare AI Search runbook](docs/cloudflare-search.mdx).
 
-Or from the CLI:
+## Deployment targets
 
-```bash
-docsflare search sync --url https://example.com/docs
-```
-
-The endpoint is public and idempotent. It calculates a content hash for the generated docs, skips work when that hash has already synced, and otherwise updates AI Search through the Worker binding. Unchanged documents are skipped, changed documents are replaced, new documents are uploaded, and removed documents are deleted.
-
-The CLI does not need a Cloudflare REST API token for search indexing. `docsflare search sync` only sends a `POST` request to the deployed Worker. You can pass either the docs root URL, such as `https://example.com/docs`, or the full sync endpoint URL.
-
-For CI, pass the URL with `--url`, set `DOCSFLARE_SEARCH_SYNC_URL`, or set `searchSyncUrl` in `docsflare.config.json`.
-
-## Deploy
+### Cloudflare Workers (preferred)
 
 Build and deploy to the production Wrangler environment:
 
@@ -288,7 +305,7 @@ For a docs repo deployed at `/docs`, use a Wrangler config like:
 {
   "name": "my-docs",
   "main": ".docsflare/worker.ts",
-  "compatibility_date": "2026-03-27",
+  "compatibility_date": "2026-07-16",
   "env": {
     "production": {
       "routes": [
@@ -299,8 +316,9 @@ For a docs repo deployed at `/docs`, use a Wrangler config like:
       ],
       "ai_search": [
         {
-          "binding": "DOCS_SEARCH",
-          "instance_name": "my-docs-search"
+          "binding": "AI_SEARCH",
+          "instance_name": "my-docs-search",
+          "remote": true
         }
       ]
     }
@@ -308,7 +326,20 @@ For a docs repo deployed at `/docs`, use a Wrangler config like:
 }
 ```
 
-If you changed docs content and use Cloudflare AI Search, send a `POST` request to `/api/search/sync` after deployment so the hosted search index matches the deployed pages.
+Generated Wrangler configurations also enable sampled Workers logs and traces. Project-owned Wrangler files remain untouched, so copy the binding and observability settings into them when needed.
+
+### Node.js and other hosts
+
+Build and run the generated Node.js adapter with:
+
+```bash
+docsflare build
+docsflare start
+```
+
+Set `platform` to `node` in `docsflare.config.json` to make `docsflare dev` use Node by default. `docsflare start` always uses Node and honors the `HOST` and `PORT` environment variables.
+
+For serverless or edge platforms that expose the Fetch API, import the generated `.docsflare/worker.ts` module. Its default export has a Workers-compatible `fetch` method, and its named `handleRequest` export accepts standard `Request` objects. Platform-specific packaging remains the responsibility of the host; the built-in `docsflare deploy` command intentionally remains Cloudflare-specific.
 
 ## Troubleshooting
 
@@ -330,9 +361,8 @@ Check for unsupported custom React imports or component syntax. Docsflare suppor
 
 Confirm that:
 
-- `wrangler.jsonc` has the `DOCS_SEARCH` AI Search binding in the `production` environment
+- `wrangler.jsonc` has the `AI_SEARCH` AI Search binding in the `production` environment
 - the AI Search instance name matches `instance_name`
-- `POST /api/search/sync` returns a successful response
 - the deployed Worker is using the `production` environment
 
 ## Contributing

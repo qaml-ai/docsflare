@@ -1,20 +1,139 @@
 ---
 title: Cloudflare AI Search
-description: Configure Docsflare search with Cloudflare AI Search.
+description: Complete setup and operations runbook for managed documentation search and chat.
 ---
 
 # Cloudflare AI Search
 
-Docsflare uses the current Cloudflare AI Search Worker binding. The production `wrangler.jsonc` environment binds an instance named `docsflare-docs` as `DOCS_SEARCH`.
+Cloudflare AI Search is Docsflare's preferred hosted search provider. The integration deliberately has one architecture:
+
+1. Docsflare renders the documentation website.
+2. Docsflare publishes `robots.txt` and `sitemap.xml` with page modification timestamps.
+3. Cloudflare AI Search crawls that website and owns indexing, storage, vector search, and synchronization.
+4. The Worker queries the instance through an `AI_SEARCH` binding.
+5. If the binding is absent or unavailable, Docsflare uses its generated static search index.
+
+Docsflare does not upload documents, expose an indexing endpoint, store indexing state, or require search secrets.
+
+## What an agent needs from the user
+
+Before changing Cloudflare resources, establish these values:
+
+- The production hostname, such as `docs.example.com`. It must be on the same Cloudflare account as AI Search.
+- A stable AI Search instance name, such as `my-docs`.
+- Whether the repository owns a `wrangler.jsonc`, `wrangler.json`, or `wrangler.toml` file.
+- Which Cloudflare account Wrangler is authenticated against.
+
+Resource creation changes external state. An agent should inspect authentication and existing instances first, and ask the user before creating an instance when that authority is not already explicit.
+
+## Recommended setup
+
+The following sequence avoids a circular dependency between the crawler and the deployed website.
+
+### 1. Check the project and authentication
+
+Run read-only checks:
+
+```bash
+docsflare doctor
+docsflare build
+npx wrangler --version
+npx wrangler whoami
+npx wrangler ai-search list --json
+```
+
+Use Wrangler 4.111 or newer. Confirm that `wrangler whoami` shows the account containing the production domain. Check the instance list before creating anything so an existing instance is reused instead of duplicated.
+
+### 2. Deploy the site without an AI Search binding
+
+Do not add `cloudflare.aiSearch` yet. Deploy the site first:
+
+```bash
+docsflare deploy
+```
+
+Verify the crawler inputs on the real hostname:
+
+```bash
+curl -fsS https://docs.example.com/robots.txt
+curl -fsS https://docs.example.com/sitemap.xml
+```
+
+The checks should confirm:
+
+- `robots.txt` allows crawling and references the sitemap.
+- `sitemap.xml` contains the expected canonical documentation URLs.
+- Sitemap entries include `<lastmod>`.
+- Opening a sitemap URL returns a rendered documentation page with HTTP 200.
+
+Resolve routing, DNS, Access, or WAF problems before creating the crawler.
+
+### 3. Create one website-backed instance
+
+If `npx wrangler ai-search get my-docs --json` confirms the intended instance already exists, reuse it. Otherwise, create it once:
+
+```bash
+npx wrangler ai-search create my-docs \
+  --type web-crawler \
+  --source docs.example.com \
+  --hybrid-search \
+  --cache \
+  --custom-metadata title:text \
+  --custom-metadata description:text
+```
+
+This setup uses Cloudflare's managed website data source, hybrid semantic and keyword retrieval, similarity caching, and metadata already emitted by Docsflare pages.
+
+Use the default AI Search namespace. Docsflare currently generates a direct instance binding, which targets an instance in that namespace.
+
+### 4. Bind the instance
+
+When the content project does not own a Wrangler file, add this to `docsflare.config.json`:
 
 ```json
 {
+  "cloudflare": {
+    "aiSearch": {
+      "instance": "my-docs"
+    }
+  }
+}
+```
+
+Docsflare then generates the development and production bindings automatically:
+
+```json
+{
+  "ai_search": [
+    {
+      "binding": "AI_SEARCH",
+      "instance_name": "my-docs",
+      "remote": true
+    }
+  ]
+}
+```
+
+`remote: true` matters because AI Search does not run inside Wrangler's local runtime.
+
+If the content project already owns a Wrangler file, that file takes precedence over `.docsflare/wrangler.jsonc`. Add the binding to both the top level for `wrangler dev` and the production environment for `docsflare deploy` because bindings are not inherited by Wrangler environments:
+
+```json
+{
+  "ai_search": [
+    {
+      "binding": "AI_SEARCH",
+      "instance_name": "my-docs",
+      "remote": true
+    }
+  ],
   "env": {
     "production": {
       "ai_search": [
         {
-          "binding": "DOCS_SEARCH",
-          "instance_name": "docsflare-docs"
+          "binding": "AI_SEARCH",
+          "instance_name": "my-docs",
+          "remote": true
         }
       ]
     }
@@ -22,14 +141,100 @@ Docsflare uses the current Cloudflare AI Search Worker binding. The production `
 }
 ```
 
-## Indexing
+Keep the binding name exactly `AI_SEARCH`. The runtime looks for `env.AI_SEARCH`.
 
-For production, deploy the Worker and trigger the binding-backed sync endpoint:
+### 5. Redeploy with the binding
 
 ```bash
-docsflare search sync --url https://example.com/docs
+docsflare deploy
 ```
 
-The command sends a `POST` request to `/api/search/sync`. It does not need a Cloudflare REST API token because indexing runs inside the deployed Worker through the `DOCS_SEARCH` binding.
+If Cloudflare reports that the instance does not exist, check the instance name, namespace, authenticated account, and deployment environment. Do not work around the error by creating another instance with a different name.
 
-For local development or missing bindings, the Worker falls back to a static in-memory search over built pages. That fallback is intentionally simple and exists only so the UI remains usable before Cloudflare AI Search is configured.
+### 6. Verify indexing and retrieval
+
+Inspect Cloudflare directly:
+
+```bash
+npx wrangler ai-search stats my-docs
+npx wrangler ai-search search my-docs --query "How do I get started?"
+```
+
+Then exercise the deployed Docsflare APIs:
+
+```bash
+curl -fsS "https://docs.example.com/api/search?q=getting+started"
+curl -fsS -X POST "https://docs.example.com/api/chat" \
+  -H "content-type: application/json" \
+  --data '{"messages":[{"role":"user","content":"How do I get started?"}]}'
+```
+
+The search response should report `"provider":"cloudflare-ai-search"`. A `static-fallback` provider means the binding is missing, the wrong environment was deployed, or the AI Search call failed. Check Workers logs before changing configuration.
+
+## Normal operation
+
+No Docsflare search command is required after deployment. Cloudflare schedules website synchronization and uses sitemap `<lastmod>` values to identify changed pages.
+
+Use native Wrangler commands only when operationally necessary:
+
+```bash
+npx wrangler ai-search stats my-docs
+npx wrangler ai-search jobs list my-docs
+npx wrangler ai-search jobs create my-docs
+```
+
+A manual job is useful after a large deployment or while diagnosing freshness. It should not be part of the normal Docsflare deployment pipeline unless the project has a demonstrated need for it.
+
+## Crawler configuration
+
+The default crawler removes common page chrome. For tighter extraction, configure a content selector of `.content` in the AI Search dashboard. That targets the rendered article body while excluding Docsflare navigation, search UI, and chat UI.
+
+For a site mounted under a base path such as `/docs`, keep the AI Search source as the hostname and use an include path such as `**/docs/**` in AI Search. Confirm that the generated sitemap contains the mounted URLs before enabling the filter.
+
+Do not configure a built-in-storage upload source, a separate R2 bucket, Vectorize, or Browser Rendering for the standard Docsflare integration. The managed website source already owns the required crawling, storage, and vector index.
+
+## Troubleshooting
+
+### The crawler finds no pages
+
+Check the deployed `robots.txt` and `sitemap.xml`, not local output. Confirm that the domain is on the same Cloudflare account. If WAF or bot controls block the crawler, follow Cloudflare's AI Search crawler allow-list guidance rather than weakening security rules broadly.
+
+### Search returns static fallback in production
+
+Confirm the binding is present in `env.production`, is named `AI_SEARCH`, and references the correct instance. Then inspect logs:
+
+```bash
+npx wrangler tail --env production
+```
+
+### Search works after deployment but not in local development
+
+The top-level binding is probably missing or does not set `remote: true`. Production environment bindings are not inherited by local development.
+
+### Results have poor titles or descriptions
+
+Confirm the instance schema contains `title` and `description` text metadata. Docsflare emits recognized Open Graph and description metadata on every rendered page. Reconfigure the instance schema and trigger one managed indexing job if the fields were added after initial indexing.
+
+### Results are stale
+
+Confirm the deployed sitemap contains a changed `<lastmod>` value, then inspect jobs:
+
+```bash
+npx wrangler ai-search jobs list my-docs
+npx wrangler ai-search jobs create my-docs
+```
+
+If a job fails, use `wrangler ai-search jobs logs` with the returned job ID.
+
+## Agent guardrails
+
+When automating this setup:
+
+- Read account and instance state before mutating it.
+- Reuse one stable instance; do not create per-deployment instances.
+- Never delete an instance, alter DNS, or weaken WAF rules without explicit user approval.
+- Never add a Docsflare sync route, upload loop, indexing database, or search secret.
+- Keep the binding name `AI_SEARCH` and the website crawler as the sole indexing owner.
+- Stop and ask when the hostname, account, instance name, or Wrangler configuration owner is ambiguous.
+
+See the [AI Search Workers binding](https://developers.cloudflare.com/ai-search/api/search/workers-binding/), [website data source](https://developers.cloudflare.com/ai-search/configuration/data-source/website/), and [Wrangler commands](https://developers.cloudflare.com/ai-search/wrangler-commands/) documentation for the current Cloudflare API surface.

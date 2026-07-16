@@ -55,6 +55,7 @@ type BuiltPage = {
   description: string;
   route: string;
   sourcePath: string;
+  updatedAt?: string;
   html: string;
   markdown: string;
 };
@@ -405,7 +406,7 @@ async function renderMdx(source: string, sourcePath: string): Promise<string> {
     await compile(preparedSource, {
       outputFormat: "function-body",
       development: false,
-      remarkPlugins: [remarkGfm],
+      remarkPlugins: [remarkGfm, remarkCodeTitles],
       rehypePlugins: [
         rehypeSlug,
         [
@@ -436,6 +437,24 @@ async function renderMdx(source: string, sourcePath: string): Promise<string> {
   );
 }
 
+function remarkCodeTitles() {
+  return (tree: unknown) => {
+    function visit(node: unknown): void {
+      if (!node || typeof node !== "object") return;
+      const record = node as Record<string, unknown>;
+      if (record.type === "code" && typeof record.meta === "string" && record.meta.trim()) {
+        const data = recordFromUnknown(record.data);
+        const hProperties = recordFromUnknown(data.hProperties);
+        hProperties["data-title"] = record.meta.trim();
+        data.hProperties = hProperties;
+        record.data = data;
+      }
+      arrayFromUnknown(record.children).forEach(visit);
+    }
+    visit(tree);
+  };
+}
+
 function preprocessMdx(source: string): string {
   return escapeProseBraces(source.replace(/^(#{1,6}\s+.+?)\s+\{#[A-Za-z0-9_-]+\}\s*$/gm, "$1"));
 }
@@ -455,22 +474,142 @@ function escapeProseBraces(source: string): string {
         return line;
       }
 
-      return line.replace(/[{}]/g, (brace) => (brace === "{" ? "&#123;" : "&#125;"));
+      return line
+        .split(/(`+[^`]*`+)/g)
+        .map((part) => part.startsWith("`") ? part : part.replace(/[{}]/g, (brace) => (brace === "{" ? "&#123;" : "&#125;")))
+        .join("");
     })
     .join("\n");
+}
+
+type MdxElementProps = Record<string, unknown> & { children?: ReactNode; title?: string };
+
+function childElements(children: ReactNode): React.ReactElement<MdxElementProps>[] {
+  return React.Children.toArray(children).filter(React.isValidElement) as React.ReactElement<MdxElementProps>[];
+}
+
+function renderTabs({ children }: { children?: ReactNode }): React.ReactElement {
+  const tabs = childElements(children);
+  return React.createElement(
+    "div",
+    { className: "mdx-tabs", "data-mdx-tabs": true },
+    React.createElement(
+      "div",
+      { className: "mdx-tab-list", role: "tablist", "aria-label": "Content tabs" },
+      tabs.map((tab, index) => React.createElement(
+        "button",
+        {
+          key: `tab-${index}`,
+          type: "button",
+          className: `mdx-tab-button${index === 0 ? " active" : ""}`,
+          role: "tab",
+          "aria-selected": index === 0,
+          tabIndex: index === 0 ? 0 : -1,
+          "data-mdx-tab-button": String(index)
+        },
+        tab.props.title ?? `Tab ${index + 1}`
+      ))
+    ),
+    tabs.map((tab, index) => React.createElement(
+      "section",
+      {
+        key: `panel-${index}`,
+        className: "mdx-tab-panel",
+        role: "tabpanel",
+        hidden: index !== 0,
+        "data-mdx-tab-panel": String(index)
+      },
+      tab.props.children
+    ))
+  );
+}
+
+function codeLabel(element: React.ReactElement<MdxElementProps>, index: number): string {
+  const code = React.isValidElement(element.props.children) ? element.props.children as React.ReactElement<MdxElementProps> : undefined;
+  const className = typeof code?.props.className === "string" ? code.props.className : "";
+  const language = className.match(/language-([\w-]+)/)?.[1];
+  const title = firstString(code?.props["data-title"], code?.props.title);
+  return title ?? language ?? `Example ${index + 1}`;
+}
+
+function renderCodeGroup({ children }: { children?: ReactNode }): React.ReactElement {
+  const examples = childElements(children);
+  if (examples.length <= 1) {
+    return React.createElement("div", { className: "mdx-code-group" }, children);
+  }
+  return React.createElement(
+    "div",
+    { className: "mdx-code-group mdx-tabs", "data-mdx-tabs": true },
+    React.createElement(
+      "div",
+      { className: "mdx-tab-list", role: "tablist", "aria-label": "Code examples" },
+      examples.map((example, index) => React.createElement(
+        "button",
+        {
+          key: `code-tab-${index}`,
+          type: "button",
+          className: `mdx-tab-button${index === 0 ? " active" : ""}`,
+          role: "tab",
+          "aria-selected": index === 0,
+          tabIndex: index === 0 ? 0 : -1,
+          "data-mdx-tab-button": String(index)
+        },
+        codeLabel(example, index)
+      ))
+    ),
+    examples.map((example, index) => React.createElement(
+      "div",
+      { key: `code-panel-${index}`, className: "mdx-tab-panel", role: "tabpanel", hidden: index !== 0, "data-mdx-tab-panel": String(index) },
+      example
+    ))
+  );
+}
+
+function field({ children, name, type, required, deprecated, default: defaultValue, query, path: pathName, body, header, pre, post }: MdxElementProps): React.ReactElement {
+  const fieldName = firstString(name, query, pathName, body, header) ?? "field";
+  const labels = [...arrayFromUnknown(pre), ...arrayFromUnknown(post)].filter((value): value is string => typeof value === "string");
+  return React.createElement(
+    "div",
+    { className: `mdx-field${deprecated ? " deprecated" : ""}` },
+    React.createElement(
+      "div",
+      { className: "mdx-field-heading" },
+      React.createElement("code", null, fieldName),
+      type ? React.createElement("span", { className: "mdx-field-type" }, String(type)) : null,
+      required ? React.createElement("span", { className: "mdx-badge mdx-badge-required" }, "required") : null,
+      deprecated ? React.createElement("span", { className: "mdx-badge" }, "deprecated") : null,
+      labels.map((label, index) => React.createElement("span", { className: "mdx-badge", key: index }, label))
+    ),
+    defaultValue !== undefined ? React.createElement("div", { className: "mdx-field-default" }, "Default: ", React.createElement("code", null, String(defaultValue))) : null,
+    React.createElement("div", { className: "mdx-field-body" }, children)
+  );
+}
+
+function treeItem(kind: "folder" | "file") {
+  return ({ children, name }: MdxElementProps) => React.createElement(
+    "li",
+    { className: `mdx-tree-${kind}` },
+    React.createElement("span", null, kind === "folder" ? "▸" : "·", " ", name === undefined ? "" : String(name)),
+    children ? React.createElement("ul", null, children) : null
+  );
+}
+
+function passthrough({ children }: { children?: ReactNode }): React.ReactElement {
+  return React.createElement(React.Fragment, null, children);
 }
 
 const mdxComponents = {
   CardGroup: ({ children, cols }: { children?: ReactNode; cols?: number }) =>
     React.createElement("div", { className: "mdx-card-group", "data-cols": String(cols ?? 2), style: { "--cols": String(cols ?? 2) } as React.CSSProperties }, children),
-  Card: ({ children, title, href, icon, color }: { children?: ReactNode; title?: string; href?: string; icon?: string; color?: string }) => {
+  Card: ({ children, title, href, icon, color, cta }: { children?: ReactNode; title?: string; href?: string; icon?: string; color?: string; cta?: string }) => {
     const Tag = href ? "a" : "div";
     return React.createElement(
       Tag,
       { className: "mdx-card", href },
-      React.createElement("span", { className: "mdx-card-icon", style: { color: color ?? undefined } }, iconSvg(icon)),
+      icon ? React.createElement("span", { className: "mdx-card-icon", style: { color: color ?? undefined } }, iconSvg(icon)) : null,
       React.createElement("strong", null, title),
-      React.createElement("div", null, children)
+      React.createElement("div", null, children),
+      cta ? React.createElement("span", { className: "mdx-card-cta" }, cta) : null
     );
   },
   Info: callout("info", "Info"),
@@ -478,19 +617,77 @@ const mdxComponents = {
   Tip: callout("tip", "Tip"),
   Warning: callout("warning", "Warning"),
   Check: callout("check", "Check"),
-  Accordion: ({ children, title }: { children?: ReactNode; title?: string }) =>
-    React.createElement("details", { className: "mdx-accordion" }, React.createElement("summary", null, title), React.createElement("div", null, children)),
+  Danger: callout("danger", "Danger"),
+  Callout: ({ children, icon, color }: MdxElementProps) => React.createElement(
+    "aside",
+    { className: "mdx-callout mdx-callout-custom", style: color ? { "--callout-color": String(color) } as React.CSSProperties : undefined },
+    React.createElement("span", { className: "mdx-callout-icon" }, iconSvg(typeof icon === "string" ? icon : "info")),
+    React.createElement("div", null, children)
+  ),
+  Accordion: ({ children, title, defaultOpen }: MdxElementProps) =>
+    React.createElement("details", { className: "mdx-accordion", open: Boolean(defaultOpen) }, React.createElement("summary", null, title), React.createElement("div", null, children)),
   AccordionGroup: ({ children }: { children?: ReactNode }) => React.createElement("div", { className: "mdx-accordion-group" }, children),
-  Tabs: ({ children }: { children?: ReactNode }) => React.createElement("div", { className: "mdx-tabs" }, children),
-  Tab: ({ children, title }: { children?: ReactNode; title?: string }) =>
-    React.createElement("section", { className: "mdx-tab" }, React.createElement("h3", null, title), children),
+  Expandable: ({ children, title, defaultOpen }: MdxElementProps) => React.createElement(
+    "details",
+    { className: "mdx-expandable", open: Boolean(defaultOpen) },
+    React.createElement("summary", null, React.createElement("span", null, "Show ", title ?? "details")),
+    React.createElement("div", null, children)
+  ),
+  Tabs: renderTabs,
+  Tab: passthrough,
   Steps: ({ children }: { children?: ReactNode }) => React.createElement("ol", { className: "mdx-steps" }, children),
-  Step: ({ children, title }: { children?: ReactNode; title?: string }) =>
-    React.createElement("li", null, title ? React.createElement("strong", null, title) : null, children),
-  Frame: ({ children }: { children?: ReactNode }) => React.createElement("div", { className: "mdx-frame" }, children),
-  CodeGroup: ({ children }: { children?: ReactNode }) => React.createElement("div", { className: "mdx-code-group" }, children),
+  Step: ({ children, title, icon }: MdxElementProps) => React.createElement(
+    "li",
+    { style: icon ? { "--step-icon": `"${String(icon)}"` } as React.CSSProperties : undefined },
+    title ? React.createElement("strong", null, title) : null,
+    React.createElement("div", null, children)
+  ),
+  Frame: ({ children, caption }: MdxElementProps) => React.createElement(
+    "figure",
+    { className: "mdx-frame" },
+    children,
+    caption ? React.createElement("figcaption", null, String(caption)) : null
+  ),
+  CodeGroup: renderCodeGroup,
   Columns: ({ children, cols }: { children?: ReactNode; cols?: number }) =>
     React.createElement("div", { className: "mdx-columns", style: { "--cols": String(cols ?? 2) } as React.CSSProperties }, children),
+  Column: ({ children }: { children?: ReactNode }) => React.createElement("div", { className: "mdx-column" }, children),
+  Panel: ({ children, title, icon }: MdxElementProps) => React.createElement(
+    "aside",
+    { className: "mdx-panel" },
+    title ? React.createElement("strong", null, icon ? React.createElement("span", { className: "mdx-inline-icon" }, iconSvg(String(icon))) : null, title) : null,
+    React.createElement("div", null, children)
+  ),
+  Banner: ({ children }: { children?: ReactNode }) => React.createElement("aside", { className: "mdx-banner" }, children),
+  Badge: ({ children, color }: MdxElementProps) => React.createElement("span", { className: "mdx-badge", style: color ? { "--badge-color": String(color) } as React.CSSProperties : undefined }, children),
+  Tooltip: ({ children, tip, content }: MdxElementProps) => React.createElement("span", { className: "mdx-tooltip", "data-tooltip": firstString(tip, content) ?? "" }, children),
+  Icon: ({ icon, name, color, size }: MdxElementProps) => React.createElement(
+    "span",
+    { className: "mdx-icon", style: { color: color ? String(color) : undefined, width: size ? String(size) : undefined, height: size ? String(size) : undefined } },
+    iconSvg(firstString(icon, name) ?? "code")
+  ),
+  Color: ({ color, name, value }: MdxElementProps) => React.createElement(
+    "span",
+    { className: "mdx-color" },
+    React.createElement("span", { className: "mdx-color-swatch", style: { background: firstString(color, value) ?? "transparent" } }),
+    React.createElement("span", null, firstString(name, color, value))
+  ),
+  Tile: ({ children, title, href, icon }: MdxElementProps) => {
+    const Tag = href ? "a" : "div";
+    return React.createElement(Tag, { className: "mdx-tile", href: href ? String(href) : undefined }, icon ? React.createElement("span", { className: "mdx-tile-icon" }, iconSvg(String(icon))) : null, React.createElement("strong", null, title), children);
+  },
+  TileGroup: ({ children, cols }: MdxElementProps) => React.createElement("div", { className: "mdx-tile-group", style: { "--cols": String(cols ?? 3) } as React.CSSProperties }, children),
+  ParamField: field,
+  ResponseField: field,
+  RequestExample: ({ children }: { children?: ReactNode }) => React.createElement("section", { className: "mdx-example mdx-request-example" }, React.createElement("strong", null, "Request"), renderCodeGroup({ children })),
+  ResponseExample: ({ children }: { children?: ReactNode }) => React.createElement("section", { className: "mdx-example mdx-response-example" }, React.createElement("strong", null, "Response"), renderCodeGroup({ children })),
+  Tree: ({ children }: { children?: ReactNode }) => React.createElement("div", { className: "mdx-tree" }, React.createElement("ul", null, children)),
+  TreeRoot: passthrough,
+  TreeFolder: treeItem("folder"),
+  TreeFile: treeItem("file"),
+  Prompt: ({ children, title }: MdxElementProps) => React.createElement("section", { className: "mdx-prompt" }, title ? React.createElement("strong", null, title) : null, React.createElement("div", null, children)),
+  View: passthrough,
+  Visibility: passthrough,
   Update: ({ children, label, description }: { children?: ReactNode; label?: string; description?: string }) =>
     React.createElement(
       "section",
@@ -508,6 +705,23 @@ const mdxComponents = {
 
 function iconSvg(name = "code"): React.ReactElement {
   const paths: Record<string, string[]> = {
+    info: ["M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z", "M12 16v-4", "M12 8h.01"],
+    note: ["M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z", "M14 2v6h6", "M8 13h8", "M8 17h5"],
+    tip: ["M9 18h6", "M10 22h4", "M8.5 14.5A6 6 0 1 1 15.5 14.5c-.9.7-1.5 1.5-1.5 2.5h-4c0-1-.6-1.8-1.5-2.5z"],
+    check: ["M20 6 9 17l-5-5"],
+    "triangle-alert": ["M10.3 2.9 1.8 17a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 2.9a2 2 0 0 0-3.4 0z", "M12 9v4", "M12 17h.01"],
+    folder: ["M3 5h6l2 2h10v12H3V5z"],
+    "folder-open": ["M3 6h6l2 2h10l-2 10H3V6z", "M3 10h18"],
+    file: ["M6 2h8l4 4v16H6V2z", "M14 2v5h5"],
+    database: ["M4 5c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3z", "M4 5v7c0 1.7 3.6 3 8 3s8-1.3 8-3V5", "M4 12v7c0 1.7 3.6 3 8 3s8-1.3 8-3v-7"],
+    cloud: ["M17.5 19H7a5 5 0 0 1-.5-10A7 7 0 0 1 20 11.5 3.5 3.5 0 0 1 17.5 19z"],
+    envelope: ["M3 5h18v14H3V5z", "m3 7 9 6 9-6"],
+    "layer-group": ["m12 2 9 5-9 5-9-5 9-5z", "m3 12 9 5 9-5", "m3 17 9 5 9-5"],
+    "clock-rotate-left": ["M3 12a9 9 0 1 0 3-6.7L3 8", "M3 3v5h5", "M12 7v5l3 2"],
+    "circle-dot": ["M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z", "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"],
+    seedling: ["M12 22V10", "M12 14C8 14 5 11 5 7c4 0 7 2 7 6", "M12 10c0-4 3-7 7-7 0 4-3 7-7 7"],
+    users: ["M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2", "M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z", "M22 21v-2a4 4 0 0 0-3-3.87", "M16 3.13a4 4 0 0 1 0 7.75"],
+    building: ["M4 22V4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v18", "M9 22v-4h6v4", "M8 6h.01", "M12 6h.01", "M16 6h.01", "M8 10h.01", "M12 10h.01", "M16 10h.01", "M8 14h.01", "M12 14h.01", "M16 14h.01"],
     rocket: [
       "M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z",
       "m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z",
@@ -533,6 +747,9 @@ function iconSvg(name = "code"): React.ReactElement {
     "credit-card": ["M4 6h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z", "M2 10h20", "M6 15h4"],
     bookmark: ["M7 4h10v16l-5-3-5 3V4z"],
     "chart-line": ["M3 3v18h18", "M7 15l4-4 3 3 5-7", "M7 15h.01", "M11 11h.01", "M14 14h.01", "M19 7h.01"],
+    bell: ["M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9", "M10 21h4"],
+    "arrows-rotate": ["M20 7h-5V2", "M4 17h5v5", "M18.4 17a8 8 0 0 1-13.9-2", "M5.6 7A8 8 0 0 1 19.5 9"],
+    "pen-nib": ["m12 19 7-7 3 3-7 7-3-3z", "m18 13-6-6-9 3-1 8 8-1 3-9z", "M2 22l5-5", "M11 7l4 4"],
     newspaper: ["M4 5h16v14H4V5z", "M8 9h8", "M8 13h8", "M8 17h5", "M5 5v14"],
     code: ["m18 16 4-4-4-4", "m6 8-4 4 4 4", "m14.5 4-5 16"]
   };
@@ -549,7 +766,8 @@ function callout(kind: string, label: string) {
     React.createElement(
       "aside",
       { className: `mdx-callout mdx-callout-${kind}` },
-      React.createElement("strong", null, label),
+      React.createElement("span", { className: "mdx-callout-icon" }, iconSvg(kind === "warning" || kind === "danger" ? "triangle-alert" : kind)),
+      React.createElement("strong", { className: "sr-only" }, label),
       React.createElement("div", null, children)
     );
 }
@@ -1026,6 +1244,7 @@ async function main() {
     const route = typeof parsed.data.path === "string" ? parsed.data.path : routeFromPath(sourcePath);
     const title = typeof parsed.data.title === "string" ? parsed.data.title : titleFromMarkdown(parsed.content, sourcePath);
     const description = typeof parsed.data.description === "string" ? parsed.data.description : "";
+    const updatedAt = pageUpdatedAt(parsed.data.updated ?? parsed.data.lastModified, statSync(absolute).mtime);
     const markdown = parsed.content.trim();
     let html: string;
     try {
@@ -1041,6 +1260,7 @@ async function main() {
       description,
       route,
       sourcePath,
+      updatedAt,
       html,
       markdown
     });
@@ -1116,6 +1336,15 @@ async function main() {
   );
 
   console.log(`Built ${pages.length} page(s) from ${path.relative(projectRoot, path.join(root, filename))}.`);
+}
+
+function pageUpdatedAt(frontmatterValue: unknown, fileModifiedAt: Date): string {
+  const candidate = frontmatterValue instanceof Date
+    ? frontmatterValue
+    : typeof frontmatterValue === "string" || typeof frontmatterValue === "number"
+      ? new Date(frontmatterValue)
+      : fileModifiedAt;
+  return Number.isNaN(candidate.getTime()) ? fileModifiedAt.toISOString() : candidate.toISOString();
 }
 
 main().catch((error) => {

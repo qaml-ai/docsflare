@@ -1,18 +1,18 @@
 ---
 title: Introduction
-description: A Mintlify-compatible documentation site powered by Cloudflare Workers.
+description: A portable, Mintlify-compatible documentation renderer with first-class Cloudflare support.
 ---
 
 # Introduction
 
-Docsflare renders Mintlify-style MDX documentation on Cloudflare Workers. Keep your `docs.json` or `mint.json`, move your `.mdx` files over, and deploy the Worker.
+Docsflare renders Mintlify-style MDX documentation as a standard Fetch API application. Keep your `docs.json` or `mint.json`, move your `.mdx` files over, and deploy to Cloudflare Workers, Node.js, or another Fetch-compatible runtime.
 
 <CardGroup cols={2}>
   <Card title="MDX-first" href="/mdx-components">
     Use familiar documentation components like cards, tabs, accordions, and callouts.
   </Card>
-  <Card title="Edge search" href="/cloudflare-search">
-    Wire the search box to a Cloudflare AI Search instance.
+  <Card title="Deployment targets" href="/deployment-targets">
+    Choose the preferred Cloudflare path or run the Node.js adapter.
   </Card>
 </CardGroup>
 
@@ -20,6 +20,7 @@ Docsflare renders Mintlify-style MDX documentation on Cloudflare Workers. Keep y
 
 - Static MDX rendering at build time
 - Mintlify-style navigation parsing
-- A `docsflare` CLI for local dev, builds, deploys, search sync, and project checks
-- Worker routing for pages, sitemap, and `llms.txt`
-- Cloudflare AI Search endpoint with local fallback for development
+- A `docsflare` CLI for local dev, builds, deploys, and project checks
+- Portable routing for pages, sitemap, and `llms.txt`
+- Built-in local search with optional provider integrations
+- Cloudflare AI Search support through an optional binding

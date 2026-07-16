@@ -1,0 +1,39 @@
+---
+title: Deployment targets
+description: Deploy Docsflare to Cloudflare Workers, Node.js, or a Fetch-compatible runtime.
+---
+
+# Deployment targets
+
+Docsflare builds a portable request handler into `.docsflare/worker.ts`. Cloudflare Workers is the preferred target and has the most integrated deployment and search experience, but it is not required.
+
+## Cloudflare Workers (preferred)
+
+The default commands use Wrangler:
+
+```bash
+docsflare dev docs
+docsflare deploy docs
+```
+
+The CLI generates `.docsflare/wrangler.jsonc` when the content project does not provide its own Wrangler configuration.
+
+## Node.js
+
+Use the included Node.js adapter for local development or a conventional server host:
+
+```bash
+docsflare dev docs --platform node
+docsflare build docs
+PORT=3000 docsflare start docs
+```
+
+Set `"platform": "node"` in `docsflare.config.json` to make Node the default for `docsflare dev`. The `start` command always starts Node and supports the `HOST` and `PORT` environment variables.
+
+## Other Fetch runtimes
+
+The generated `.docsflare/worker.ts` exports both a default object with a `fetch` method and a named `handleRequest(request, env, context)` function. This is the integration boundary for serverless and edge hosts that use standard `Request` and `Response` objects.
+
+Host-specific bundling and deployment are intentionally left to the host. The built-in `docsflare deploy` command remains Cloudflare-specific so Cloudflare stays simple without coupling the renderer to every provider's CLI.
+
+Search works everywhere with the generated in-memory index. Adapters can provide an external search implementation through `env.SEARCH`; Cloudflare uses the optional `AI_SEARCH` instance binding.
